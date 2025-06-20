@@ -24,3 +24,5 @@ dist-ssr
 *.sw?
 # openweathermapapi key
 openweathermapapi_key
+# Firebase configuration
+firebaseConfig.ts

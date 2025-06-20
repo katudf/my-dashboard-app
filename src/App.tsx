@@ -3,90 +3,65 @@ import { addDays, format, differenceInDays, parseISO } from 'date-fns';
 import { ja } from 'date-fns/locale';
 import { Plus, Copy, Clipboard, BrainCircuit, Trash2, X, Bell, Save, XCircle, Pencil, AlertCircle } from 'lucide-react';
 
+// Firebase SDKのインポート
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, onAuthStateChanged, type User, signInWithCustomToken } from 'firebase/auth';
+import { 
+    getFirestore, collection, doc, onSnapshot, 
+    addDoc, updateDoc, deleteDoc, writeBatch, query, where, getDocs 
+} from 'firebase/firestore';
+
+// グローバル変数をTypeScriptに認識させる
+declare const __firebase_config: string;
+declare const __app_id: string;
+declare const __initial_auth_token: string;
+
 // --- 1. 型定義 (Type Definitions) ---
-export interface Project {
-  id: number;
+export interface ProjectData {
   name: string;
   color: string;
   borderColor: string;
   startDate: string | null;
   endDate: string | null;
 }
+export interface Project extends ProjectData { id: string; }
 
-export interface Task {
-  id: number;
-  projectId: number;
+export interface TaskData {
+  projectId: string;
   text: string;
   start: string;
   end: string;
 }
+export interface Task extends TaskData { id: string; }
 
-export interface PositionedTask extends Task {
-  level: number;
-}
+export interface PositionedTask extends Task { level: number; }
 
-export interface Worker {
-  id: number;
-  name: string;
-}
+export interface WorkerData { name: string; }
+export interface Worker extends WorkerData { id: string; }
 
-export interface ProjectAssignment {
-  type: 'project';
-  id: number;
-}
-
-export interface StatusAssignment {
-  type: 'status';
-  value: '休み' | '半休';
-}
-
+export interface ProjectAssignment { type: 'project'; id: string; }
+export interface StatusAssignment { type: 'status'; value: '休み' | '半休'; }
 export type Assignment = ProjectAssignment | StatusAssignment;
+export interface Assignments { [key: string]: Assignment[]; }
 
-export interface Assignments {
-  [key: string]: Assignment[];
-}
+export interface WeatherData { [date: string]: { precip: number; temp: number; }; }
+export interface HolidayData { [date: string]: string; }
 
-export interface WeatherData {
-  [date: string]: {
-    precip: number;
-    temp: number;
-  };
-}
+// --- Firebase Config & Constants ---
+const firebaseConfig = typeof __firebase_config !== 'undefined' && __firebase_config
+  ? JSON.parse(__firebase_config)
+  : {
+      apiKey: "AIzaSyC2cXYVr2KMWjAm3kuOV7cNV-O51nlBNkA",
+      authDomain: "dashboard-app-e7278.firebaseapp.com",
+      projectId: "dashboard-app-e7278",
+      storageBucket: "dashboard-app-e7278.appspot.com",
+      messagingSenderId: "649253642945",
+      appId: "1:649253642945:web:1d8d7b9f2777a64a4daa40",
+      measurementId: "G-WEFD2JNYZG"
+    };
 
-export interface HolidayData {
-    [date: string]: string;
-}
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
-// --- 初期データ (Initial Data) ---
-const initialProjects: Project[] = [
-    { id: 1, name: '七の橋 外壁塗装および防水工事', color: 'bg-teal-500', borderColor: 'border-teal-500', startDate: '2025-06-11', endDate: '2025-06-25' },
-    { id: 2, name: '工場ダクト修繕', color: 'bg-orange-500', borderColor: 'border-orange-500', startDate: '2025-06-08', endDate: '2025-06-14' },
-    { id: 3, name: 'デイサービスひまわり 内装リニューアル', color: 'bg-red-500', borderColor: 'border-red-500', startDate: null, endDate: null },
-    { id: 4, name: '金属テック倉庫 新築工事', color: 'bg-yellow-500', borderColor: 'border-yellow-500', startDate: null, endDate: null },
-];
-
-const initialWorkers: Worker[] = [
-    { id: 1, name: '斎藤' }, { id: 2, name: '鈴木' }, { id: 3, name: '高橋' }, { id: 4, name: '小熊' },
-    { id: 5, name: 'ハヤシ' }, { id: 6, name: 'アリエル' }, { id: 7, name: '松田' },
-];
-
-const initialTasks: Task[] = [
-    { id: 1, projectId: 1, text: '足場設置', start: '2025-06-11', end: '2025-06-14' },
-    { id: 2, projectId: 1, text: '水洗い', start: '2025-06-13', end: '2025-06-16' }, 
-    { id: 3, projectId: 1, text: '塗装工事', start: '2025-06-17', end: '2025-06-20' },
-    { id: 4, projectId: 1, text: '資材搬入', start: '2025-06-13', end: '2025-06-13' },
-];
-
-const initialAssignments: Assignments = {
-    'w1-2025-06-11': [{ type: 'project', id: 1 }],
-    'w1-2025-06-12': [{ type: 'project', id: 1 }],
-    'w2-2025-06-11': [{ type: 'project', id: 1 }],
-    'w2-2025-06-12': [{ type: 'project', id: 2 }],
-    'w3-2025-06-18': [{ type: 'status', value: '休み' }],
-    'w4-2025-06-19': [{ type: 'status', value: '半休' }],
-};
-
-// --- 定数 (Constants) ---
 const API_KEY = '9d87dcc7996d69d1a64804dabb7795df'; 
 const LAT = '39.14';
 const LON = '141.14';
@@ -288,10 +263,15 @@ const AssignmentCell: React.FC<{
 
 // App.tsx: 全体のエントリーポイント。
 const App: React.FC = () => {
-    const [projects, setProjects] = useState<Project[]>(initialProjects);
-    const [workers, setWorkers] = useState<Worker[]>(initialWorkers);
-    const [tasks, setTasks] = useState<Task[]>(initialTasks);
-    const [assignments, setAssignments] = useState<Assignments>(initialAssignments);
+    const [db, setDb] = useState<any>(null);
+    const [user, setUser] = useState<User | null>(null);
+    const [isLoading, setIsLoading] = useState(true);
+
+    const [projects, setProjects] = useState<Project[]>([]);
+    const [workers, setWorkers] = useState<Worker[]>([]);
+    const [tasks, setTasks] = useState<Task[]>([]);
+    const [assignments, setAssignments] = useState<Assignments>({});
+    
     const [weatherData, setWeatherData] = useState<WeatherData>({});
     const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
     const [modalState, setModalState] = useState<{ type: 'assignment' | 'project' | 'worker' | 'ai' | null; data: any }>({ type: null, data: null });
@@ -301,7 +281,6 @@ const App: React.FC = () => {
     const [isSelecting, setIsSelecting] = useState(false);
     const [clipboard, setClipboard] = useState<Assignment[] | null>(null);
     const [dragInfo, setDragInfo] = useState<{ item: Project | Task; type: 'project' | 'task'; handle: 'move' | 'resize-left' | 'resize-right'; startX: number; originalStart: Date; originalEnd: Date; } | null>(null);
-    // ★修正: スクロール用の状態を追加
     const [scrollDrag, setScrollDrag] = useState<{ isDragging: boolean; startX: number; scrollLeftStart: number; } | null>(null);
     
     const gridRef = useRef<HTMLDivElement>(null);
@@ -311,6 +290,91 @@ const App: React.FC = () => {
     const showNotification = useCallback((message: string, type: 'success' | 'error' = 'success') => {
         setNotification({ message, type });
     }, []);
+    
+    useEffect(() => {
+        if (!firebaseConfig.apiKey) {
+            console.error("Firebase config is missing or invalid.");
+            setIsLoading(false);
+            return;
+        }
+        
+        console.log("デバッグ: Firebase 初期化開始...");
+        const app = initializeApp(firebaseConfig);
+        console.log("デバッグ: Firebase 初期化完了。");
+        const auth = getAuth(app);
+        const firestoreDb = getFirestore(app);
+        setDb(firestoreDb);
+
+        const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+            if (currentUser) {
+                console.log("デバッグ: Firebase 認証ユーザー:", currentUser.uid);
+                setUser(currentUser);
+            } else {
+                (async () => {
+                    try {
+                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                             console.log("デバッグ: カスタムトークンでサインインします...");
+                            await signInWithCustomToken(auth, __initial_auth_token);
+                        } else {
+                            console.log("デバッグ: 匿名認証でサインインします...");
+                            await signInAnonymously(auth);
+                        }
+                    } catch (error) {
+                        console.error("Firebase sign-in failed: ", error);
+                        showNotification("Firebaseへの接続に失敗しました。", 'error');
+                        setIsLoading(false);
+                    }
+                })();
+            }
+        });
+
+        return () => unsubscribe();
+    }, [showNotification]);
+
+
+    useEffect(() => {
+        if (!db || !user) return;
+        
+        setIsLoading(true);
+        const userId = user.uid;
+        console.log(`デバッグ: Firestoreリスナーを設定中 (userId: ${userId})`);
+
+        const collections = ['projects', 'workers', 'tasks', 'assignments'];
+        const unsubscribes = collections.map(colName => {
+            const path = `artifacts/${appId}/users/${userId}/${colName}`;
+            console.log(`デバッグ: パス '${path}' をリッスンします。`);
+            const collRef = collection(db, 'artifacts', appId, 'users', userId, colName);
+            return onSnapshot(collRef, (snapshot) => {
+                console.log(`デバッグ: '${colName}' コレクションのデータを受信しました。ドキュメント数: ${snapshot.size}`);
+                const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                switch (colName) {
+                    case 'projects':
+                        setProjects(data as Project[]);
+                        break;
+                    case 'workers':
+                        setWorkers(data as Worker[]);
+                        break;
+                    case 'tasks':
+                        setTasks(data as Task[]);
+                        break;
+                    case 'assignments':
+                        const assignmentsData: Assignments = {};
+                        snapshot.docs.forEach(doc => {
+                           assignmentsData[doc.id] = doc.data().assignments;
+                        });
+                        setAssignments(assignmentsData);
+                        break;
+                }
+            }, (error) => {
+                console.error(`Error fetching ${colName}:`, error);
+                showNotification(`${colName}のデータ取得に失敗しました。`, 'error');
+            });
+        });
+
+        setIsLoading(false);
+        return () => unsubscribes.forEach(unsub => unsub());
+
+    }, [db, user, showNotification]);
 
     useEffect(() => {
         const fetchHolidays = async () => {
@@ -328,8 +392,7 @@ const App: React.FC = () => {
     
     useEffect(() => {
         const fetchWeather = async () => {
-            if (!API_KEY || API_KEY === 'YOUR_API_KEY_HERE') {
-                console.warn('OpenWeatherMap APIキーが設定されていません。ダミーデータを表示します。');
+            if (!API_KEY) {
                 return;
             }
             try {
@@ -370,8 +433,8 @@ const App: React.FC = () => {
         if (!selection.startKey || !selection.endKey) return keys;
         const [, startWorkerIdStr, startYear, startMonth, startDay] = selection.startKey.split(/w|-/);
         const [, endWorkerIdStr, endYear, endMonth, endDay] = selection.endKey.split(/w|-/);
-        const startWorkerIndex = workers.findIndex(w => w.id === parseInt(startWorkerIdStr));
-        const endWorkerIndex = workers.findIndex(w => w.id === parseInt(endWorkerIdStr));
+        const startWorkerIndex = workers.findIndex(w => w.id === startWorkerIdStr);
+        const endWorkerIndex = workers.findIndex(w => w.id === endWorkerIdStr);
         const startDateIndex = dates.findIndex(d => formatDateStr(d) === `${startYear}-${startMonth}-${startDay}`);
         const endDateIndex = dates.findIndex(d => formatDateStr(d) === `${endYear}-${endMonth}-${endDay}`);
         if (startWorkerIndex === -1 || endWorkerIndex === -1 || startDateIndex === -1 || endDateIndex === -1) return keys;
@@ -390,7 +453,7 @@ const App: React.FC = () => {
     }, [selection, workers, dates]);
 
     const positionedTasksByProject = useMemo(() => {
-        const byProject: { [projectId: number]: { positionedTasks: PositionedTask[], maxLevel: number } } = {};
+        const byProject: { [projectId: string]: { positionedTasks: PositionedTask[], maxLevel: number } } = {};
 
         for (const project of projects) {
             const projectTasks = tasks.filter(t => t.projectId === project.id).sort((a, b) => differenceInDays(parseDateStr(a.start), parseDateStr(b.start)));
@@ -451,7 +514,6 @@ const App: React.FC = () => {
         }
     }, [isSelecting, selection.startKey, selection.endKey, selectedKeys]);
     
-    // ★修正: グリッドの空白エリアでのマウスダウンイベント
     const handleGridMouseDown = (e: React.MouseEvent) => {
         if (
             (e.target as HTMLElement).closest('.gantt-bar') ||
@@ -475,7 +537,6 @@ const App: React.FC = () => {
     useEffect(() => {
         const gridElement = gridRef.current;
         const handleMouseMove = (e: MouseEvent) => {
-            // Gantt bar drag logic
             if (dragInfo) {
                 const dx = e.pageX - dragInfo.startX;
                 const dayOffset = Math.round(dx / DATE_CELL_WIDTH);
@@ -493,14 +554,15 @@ const App: React.FC = () => {
                     newEnd = addDays(dragInfo.originalEnd, dayOffset);
                     if (newEnd < newStart) newEnd = newStart;
                 }
-                const updateState = (items: any[], setter: Function) => {
-                    setter(items.map(p => p.id === dragInfo.item.id ? { ...p, startDate: formatDateStr(newStart), endDate: formatDateStr(newEnd), start: formatDateStr(newStart), end: formatDateStr(newEnd) } : p));
-                };
-                if (dragInfo.type === 'project') updateState(projects, setProjects);
-                else updateState(tasks, setTasks);
+                
+                const collectionName = dragInfo.type === 'project' ? 'projects' : 'tasks';
+                const docRef = doc(db, 'artifacts', appId, 'users', user!.uid, collectionName, dragInfo.item.id);
+                const fieldToUpdate = dragInfo.type === 'project' 
+                    ? { startDate: formatDateStr(newStart), endDate: formatDateStr(newEnd) }
+                    : { start: formatDateStr(newStart), end: formatDateStr(newEnd) };
+                updateDoc(docRef, fieldToUpdate).catch(error => console.error("Error updating document:", error));
             }
 
-            // ★修正: Scroll drag logic
             if (scrollDrag?.isDragging && gridElement) {
                 e.preventDefault();
                 const x = e.pageX - gridElement.offsetLeft;
@@ -533,12 +595,14 @@ const App: React.FC = () => {
             if (isCtrlOrCmd && e.key.toLowerCase() === 'v') {
                 e.preventDefault();
                 if (clipboard !== null && selectedKeys.size > 0) {
-                    setAssignments(prev => {
-                        const newAssignments = { ...prev };
-                        selectedKeys.forEach(key => { newAssignments[key] = [...clipboard] });
-                        return newAssignments;
+                    const batch = writeBatch(db);
+                    selectedKeys.forEach(key => {
+                        const docRef = doc(db, 'artifacts', appId, 'users', user!.uid, 'assignments', key);
+                        batch.set(docRef, { assignments: clipboard });
                     });
-                    showNotification(`${selectedKeys.size}件に貼り付けました`);
+                    batch.commit().then(() => {
+                        showNotification(`${selectedKeys.size}件に貼り付けました`);
+                    }).catch(error => console.error("Error pasting assignments:", error));
                 }
             }
         };
@@ -551,23 +615,87 @@ const App: React.FC = () => {
             document.removeEventListener('mouseup', handleMouseUpGlobal);
             document.removeEventListener('keydown', handleKeyDown);
         };
-    }, [dragInfo, isSelecting, projects, tasks, assignments, selectedKeys, selection.startKey, clipboard, showNotification, scrollDrag]);
+    }, [dragInfo, isSelecting, assignments, selectedKeys, selection.startKey, clipboard, showNotification, scrollDrag, db, user]);
 
     const handleSaveAssignment = (key: string, newAssignments: Assignment[]) => {
-      setAssignments(prev => ({ ...prev, [key]: newAssignments }));
+      const docRef = doc(db, 'artifacts', appId, 'users', user!.uid, 'assignments', key);
+      updateDoc(docRef, { assignments: newAssignments }).catch(error => {
+          if (error.code === 'not-found') {
+              addDoc(collection(db, 'artifacts', appId, 'users', user!.uid, 'assignments'), { assignments: newAssignments, _id: key })
+          } else {
+              console.error("Error saving assignment:", error)
+          }
+      });
     };
 
-    const handleSaveTask = (taskToSave: Task) => {
-        if (taskToSave.id) {
-            setTasks(tasks.map(t => t.id === taskToSave.id ? taskToSave : t));
+    const handleSaveTask = async (taskToSave: Task) => {
+        const { id, ...taskData } = taskToSave;
+        const collRef = collection(db, 'artifacts', appId, 'users', user!.uid, 'tasks');
+        console.log(`デバッグ: Firestoreへのタスク保存開始: /tasks/${id || '(new)'}`, taskData);
+        if (id && id !== "0") {
+            await updateDoc(doc(collRef, id), taskData);
         } else {
-            const newId = Math.max(0, ...tasks.map(t => t.id)) + 1;
-            setTasks([...tasks, { ...taskToSave, id: newId }]);
+            await addDoc(collRef, taskData);
         }
+        console.log("デバッグ: タスク保存完了");
     };
 
-    const handleDeleteTask = (taskId: number) => {
-        setTasks(tasks.filter(t => t.id !== taskId));
+    const handleDeleteTask = async (taskId: string) => {
+        console.log(`デバッグ: Firestoreからのタスク削除開始: /tasks/${taskId}`);
+        const docRef = doc(db, 'artifacts', appId, 'users', user!.uid, 'tasks', taskId);
+        await deleteDoc(docRef);
+        console.log("デバッグ: タスク削除完了");
+    };
+    
+    const handleSaveProject = async (projectToSave: Project) => {
+        const { id, ...projectData } = projectToSave;
+        const collRef = collection(db, 'artifacts', appId, 'users', user!.uid, 'projects');
+        console.log(`デバッグ: Firestoreへのプロジェクト保存開始: /projects/${id || '(new)'}`, projectData);
+        if (id && id !== "0") {
+            await updateDoc(doc(collRef, id), projectData);
+        } else {
+            await addDoc(collRef, projectData);
+        }
+        showNotification('現場情報を保存しました');
+    };
+
+    const handleDeleteProject = async (projectId: string) => {
+        console.log(`デバッグ: プロジェクト削除開始: ${projectId}`);
+        const batch = writeBatch(db);
+        const projectDocRef = doc(db, 'artifacts', appId, 'users', user!.uid, 'projects', projectId);
+        batch.delete(projectDocRef);
+        
+        const tasksQuery = query(collection(db, 'artifacts', appId, 'users', user!.uid, 'tasks'), where("projectId", "==", projectId));
+        const tasksSnapshot = await getDocs(tasksQuery);
+        tasksSnapshot.forEach(doc => {
+            console.log(`デバッグ: 関連タスク削除: ${doc.id}`);
+            batch.delete(doc.ref);
+        });
+
+        await batch.commit();
+        showNotification('現場を削除しました', 'error');
+    };
+
+    const handleSaveWorker = async (workerToSave: Worker) => {
+        const { id, ...workerData } = workerToSave;
+        const collRef = collection(db, 'artifacts', appId, 'users', user!.uid, 'workers');
+        console.log(`デバッグ: Firestoreへの作業員保存開始: /workers/${id || '(new)'}`, workerData);
+        if (id && id !== "0") {
+            await updateDoc(doc(collRef, id), workerData);
+        } else {
+            await addDoc(collRef, workerData);
+        }
+        showNotification('作業員情報を保存しました');
+    }
+
+    const handleDeleteWorker = async (workerId: string) => {
+        console.log(`デバッグ: 作業員削除開始: ${workerId}`);
+        const batch = writeBatch(db);
+        const workerDocRef = doc(db, 'artifacts', appId, 'users', user!.uid, 'workers', workerId);
+        batch.delete(workerDocRef);
+        
+        await batch.commit();
+        showNotification('作業員を削除しました', 'error');
     };
 
     const handleRequestConfirmation = (message: string, onConfirm: () => void) => {
@@ -586,6 +714,15 @@ const App: React.FC = () => {
             }
         }
     }, [viewStartDate]);
+
+    if (isLoading || !user) {
+        return (
+            <div className="flex items-center justify-center h-screen bg-gray-100">
+                <div className="loader ease-linear rounded-full border-8 border-t-8 border-gray-200 h-32 w-32"></div>
+                <h2 className="text-xl ml-4">データを読み込んでいます...</h2>
+            </div>
+        );
+    }
 
     return (
         <div className="bg-gray-100 text-gray-800 p-4 sm:p-6 h-screen flex flex-col font-sans">
@@ -689,8 +826,8 @@ const App: React.FC = () => {
                 onClose={() => setModalState({ type: null, data: null })}
                 project={projects.find(p => p.id === modalState.data?.id) || null}
                 tasks={tasks.filter(t => t.projectId === modalState.data?.id)}
-                onSave={(project) => { if (project.id) { setProjects(projects.map(p => p.id === project.id ? project : p)); } else { const newId = Math.max(0, ...projects.map(p => p.id)) + 1; const colors = ['bg-red-500', 'bg-yellow-500', 'bg-green-500', 'bg-blue-500', 'bg-indigo-500', 'bg-purple-500', 'bg-pink-500']; const randomColor = colors[newId % colors.length]; const newProject = { ...project, id: newId, color: randomColor, borderColor: randomColor.replace('bg-', 'border-') }; setProjects([...projects, newProject]); } showNotification('現場情報を保存しました'); }}
-                onDelete={(id) => handleRequestConfirmation('この現場を削除しますか？関連するタスクもすべて削除されます。', () => { setProjects(projects.filter(p => p.id !== id)); setTasks(tasks.filter(t => t.projectId !== id)); setAssignments(prev => { const newAssignments = { ...prev }; Object.keys(newAssignments).forEach(key => { newAssignments[key] = newAssignments[key].filter(a => a.type !== 'project' || a.id !== id); if (newAssignments[key].length === 0) delete newAssignments[key]; }); return newAssignments; }); showNotification('現場を削除しました', 'error'); })}
+                onSave={handleSaveProject}
+                onDelete={(id) => handleRequestConfirmation('この現場を削除しますか？関連するタスクもすべて削除されます。', () => handleDeleteProject(id))}
                 onSaveTask={handleSaveTask}
                 onDeleteTask={(id) => handleRequestConfirmation('この項目を削除しますか？', () => handleDeleteTask(id))}
             />
@@ -698,10 +835,10 @@ const App: React.FC = () => {
                 isOpen={modalState.type === 'worker'}
                 onClose={() => setModalState({ type: null, data: null })}
                 worker={workers.find(w => w.id === modalState.data?.id) || null}
-                onSave={(worker) => { if (worker.id) { setWorkers(workers.map(w => w.id === worker.id ? worker : w)); } else { const newId = Math.max(0, ...workers.map(w => w.id)) + 1; setWorkers([...workers, { ...worker, id: newId }]); } showNotification('作業員情報を保存しました'); }}
-                onDelete={(id) => handleRequestConfirmation('この作業員を削除しますか？', () => { setWorkers(workers.filter(w => w.id !== id)); setAssignments(prev => { const newAssignments = { ...prev }; Object.keys(newAssignments).forEach(key => { if (key.startsWith(`w${id}-`)) delete newAssignments[key]; }); return newAssignments; }); showNotification('作業員を削除しました', 'error'); })}
+                onSave={handleSaveWorker}
+                onDelete={(id) => handleRequestConfirmation('この作業員を削除しますか？', () => handleDeleteWorker(id))}
             />
-            <AiModal isOpen={modalState.type === 'ai'} onClose={() => setModalState({ type: null, data: null })} data={modalState.data} weatherData={weatherData} assignments={assignments} workers={workers} projects={projects} tasks={tasks} onAddTask={(task) => { setTasks(prev => [...prev, task]); showNotification(`タスク「${task.text}」を追加しました`); }} />
+            <AiModal isOpen={modalState.type === 'ai'} onClose={() => setModalState({ type: null, data: null })} data={modalState.data} weatherData={weatherData} assignments={assignments} workers={workers} projects={projects} onAddTask={(task) => { setTasks(prev => [...prev, task]); showNotification(`タスク「${task.text}」を追加しました`); }} />
             <GlobalNotification notification={notification} onClear={() => setNotification(null)} />
             <ConfirmationModal confirmation={confirmation} onCancel={closeConfirmation} />
         </div>
@@ -798,7 +935,7 @@ const AssignmentModal: React.FC<{
 const TaskRow: React.FC<{
     task: Task;
     onSave: (task: Task) => void;
-    onDelete: (id: number) => void;
+    onDelete: (id: string) => void;
 }> = ({ task, onSave, onDelete }) => {
     const [isEditing, setIsEditing] = useState(!task.id);
     const [text, setText] = useState(task.text);
@@ -820,7 +957,7 @@ const TaskRow: React.FC<{
 
     const handleCancel = () => {
         if (!task.id) {
-            onDelete(0);
+            onDelete("0");
         } else {
             setText(task.text);
             setStart(task.start);
@@ -859,8 +996,8 @@ const TaskRow: React.FC<{
 const ProjectEditModal: React.FC<{
     isOpen: boolean; onClose: () => void; project: Project | null;
     tasks: Task[];
-    onSave: (project: Project) => void; onDelete: (id: number) => void;
-    onSaveTask: (task: Task) => void; onDeleteTask: (id: number) => void;
+    onSave: (project: Project) => void; onDelete: (id: string) => void;
+    onSaveTask: (task: Task) => void; onDeleteTask: (id: string) => void;
 }> = ({ isOpen, onClose, project, tasks, onSave, onDelete, onSaveTask, onDeleteTask }) => {
     const [name, setName] = useState('');
     const [startDate, setStartDate] = useState('');
@@ -884,25 +1021,25 @@ const ProjectEditModal: React.FC<{
     const handleProjectSave = () => {
         if (!name) { alert('現場名を入力してください。'); return; }
         if (startDate && endDate && startDate > endDate) { alert('終了日は開始日以降に設定してください。'); return; }
-        onSave({ ...project, id: project?.id || 0, name, startDate: startDate || null, endDate: endDate || null, color: project?.color || '', borderColor: project?.borderColor || '' });
+        onSave({ ...project, id: project?.id || "0", name, startDate: startDate || null, endDate: endDate || null, color: project?.color || '', borderColor: project?.borderColor || '' });
         onClose();
     };
     
     const handleAddNewTaskRow = () => {
-        const newTask: Task = { id: 0, projectId: project!.id, text: '', start: '', end: '' };
+        const newTask: Task = { id: "0", projectId: project!.id, text: '', start: '', end: '' };
         setLocalTasks([...localTasks, newTask]);
     };
 
     const handleTaskSave = (task: Task) => {
         onSaveTask(task);
         if(!task.id) {
-             setLocalTasks(prev => prev.filter(t => t.id !== 0));
+             setLocalTasks(prev => prev.filter(t => t.id !== "0"));
         }
     };
     
-    const handleTaskDelete = (id: number) => {
-        if (id === 0) {
-            setLocalTasks(prev => prev.filter(t => t.id !== 0));
+    const handleTaskDelete = (id: string) => {
+        if (id === "0") {
+            setLocalTasks(prev => prev.filter(t => t.id !== "0"));
         } else {
             onDeleteTask(id);
         }
@@ -917,7 +1054,7 @@ const ProjectEditModal: React.FC<{
                         <input type="text" placeholder="現場名" value={name} onChange={e => setName(e.target.value)} className="input" />
                         <div className="flex space-x-2">
                             <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="input flex-1" title="開始日"/>
-                            <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="input flex-1" title="終了日"/>
+                            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="input flex-1" title="終了日"/>
                         </div>
                     </div>
                 </div>
@@ -951,13 +1088,13 @@ const ProjectEditModal: React.FC<{
 
 const WorkerEditModal: React.FC<{
     isOpen: boolean; onClose: () => void; worker: Worker | null;
-    onSave: (worker: Worker) => void; onDelete: (id: number) => void;
+    onSave: (worker: Worker) => void; onDelete: (id: string) => void;
 }> = ({ isOpen, onClose, worker, onSave, onDelete }) => {
     const [name, setName] = useState('');
     useEffect(() => { setName(worker?.name || ''); }, [worker]);
     const handleSave = () => {
         if (!name) { alert('作業員名を入力してください。'); return; }
-        onSave({ ...worker, id: worker?.id || 0, name });
+        onSave({ ...worker, id: worker?.id || "0", name });
         onClose();
     };
     return (
@@ -976,9 +1113,9 @@ const WorkerEditModal: React.FC<{
 
 const AiModal: React.FC<{
     isOpen: boolean; onClose: () => void; data: any; weatherData: WeatherData;
-    assignments: Assignments; workers: Worker[]; projects: Project[]; tasks: Task[];
+    assignments: Assignments; workers: Worker[]; projects: Project[];
     onAddTask: (task: Task) => void;
-}> = ({ isOpen, onClose, data, weatherData, assignments, workers, projects, tasks, onAddTask }) => {
+}> = ({ isOpen, onClose, data, weatherData, assignments, workers, projects, onAddTask }) => {
     const [isLoading, setIsLoading] = useState(false);
     const [content, setContent] = useState<any>(null);
     const [title, setTitle] = useState('');
@@ -1042,7 +1179,7 @@ const AiModal: React.FC<{
     
     const handleAddTask = (taskName: string, duration: number) => {
         if (!data?.project) return;
-        const newTaskId = Math.max(0, ...tasks.map(t => t.id)) + 1;
+        const newTaskId = "0"; // Firestore will generate ID
         const startDate = new Date();
         const endDate = addDays(startDate, duration - 1);
         onAddTask({ id: newTaskId, projectId: data.project.id, text: taskName, start: formatDateStr(startDate), end: formatDateStr(endDate) });
