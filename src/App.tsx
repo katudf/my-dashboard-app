@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { addDays, format, differenceInDays, parseISO } from 'date-fns';
+import { addDays, format, differenceInDays, parseISO, startOfDay } from 'date-fns';
 import { ja } from 'date-fns/locale';
 import { Plus, Copy, Clipboard, BrainCircuit, Trash2, X, Bell, Save, XCircle, Pencil, AlertCircle, Palette } from 'lucide-react';
 
@@ -79,7 +79,7 @@ const BAR_V_MARGIN = 4;
 const WORKER_HEADER_HEIGHT = 40;
 const WORKER_ROW_HEIGHT = 50;
 
-// ★★★ 追加: 色の選択肢 ★★★
+// 色の選択肢
 const COLOR_OPTIONS = [
     { color: 'bg-teal-500', borderColor: 'border-teal-700' },
     { color: 'bg-orange-500', borderColor: 'border-orange-700' },
@@ -94,10 +94,10 @@ const COLOR_OPTIONS = [
 
 // --- 日付ヘルパー関数 (Date Helpers) ---
 const today = new Date();
-const viewStartDate = addDays(today, -10);
+const viewStartDate = startOfDay(addDays(today, -10)); // タイムゾーンの問題を避けるためstartOfDayを使用
 
 const formatDateStr = (date: Date): string => format(date, 'yyyy-MM-dd');
-const parseDateStr = (dateStr: string): Date => parseISO(dateStr);
+const parseDateStr = (dateStr: string): Date => parseISO(dateStr); // ISO文字列からDateへ
 
 // --- 色ヘルパー関数 ---
 const getTaskBarColor = (projectColor: string): string => {
@@ -198,7 +198,7 @@ const GanttBar: React.FC<{
     const startOffset = differenceInDays(startDate, viewStartDate);
     const duration = differenceInDays(endDate, startDate) + 1;
 
-    if (startOffset + duration <= 0 || startOffset >= DAYS_TO_SHOW) return null;
+    if (startOffset < 0 && startOffset + duration < 0) return null;
     
     const left = startOffset * DATE_CELL_WIDTH;
     const width = duration * DATE_CELL_WIDTH;
@@ -226,7 +226,13 @@ const GanttBar: React.FC<{
                 className="resize-handle absolute left-0 top-0 h-full w-2 cursor-ew-resize z-20"
                 onMouseDown={(e) => { e.stopPropagation(); onMouseDown(e, item, type, 'resize-left'); }}
             />
-            {!isProject && <span className="truncate px-2">{(item as Task).text}</span>}
+            {isProject ? (
+                <span className="truncate px-2 text-white font-bold text-sm">
+                    {(item as Project).name} {format(startDate, 'M/d')}～{format(endDate, 'M/d')} ({duration}日間)
+                </span>
+            ) : (
+                <span className="truncate px-2">{(item as Task).text}</span>
+            )}
             <div
                 className="resize-handle absolute right-0 top-0 h-full w-2 cursor-ew-resize z-20"
                 onMouseDown={(e) => { e.stopPropagation(); onMouseDown(e, item, type, 'resize-right'); }}
@@ -506,12 +512,41 @@ const App: React.FC = () => {
     const handleGanttMouseDown = useCallback((e: React.MouseEvent, item: Project | Task, type: 'project' | 'task', handle: 'move' | 'resize-left' | 'resize-right') => {
         e.preventDefault();
         e.stopPropagation();
-        const startStr = type === 'project' ? (item as Project).startDate : (item as Task).start;
-        const endStr = type === 'project' ? (item as Project).endDate : (item as Task).end;
+
+        const projectTasks = type === 'project' ? tasks.filter(t => t.projectId === item.id) : [];
+
+        // ★★★ 修正: プロジェクト移動時は、タスクの日付も一緒に保存する ★★★
+        const startStr = type === 'project' 
+            ? (item as Project).startDate
+            : (item as Task).start;
+
+        const endStr = type === 'project'
+            ? (item as Project).endDate
+            : (item as Task).end;
+            
         if (!startStr || !endStr) return;
         document.body.style.cursor = handle === 'move' ? 'grabbing' : 'ew-resize';
-        setDragInfo({ item, type, handle, startX: e.pageX, originalStart: parseDateStr(startStr), originalEnd: parseDateStr(endStr) });
-    }, []);
+
+        const dragInfoData: any = { 
+            item, 
+            type, 
+            handle, 
+            startX: e.pageX, 
+            originalStart: parseDateStr(startStr), 
+            originalEnd: parseDateStr(endStr)
+        };
+        
+        // ★★★ 追加: プロジェクト移動の場合、関連タスクの元の位置も保存 ★★★
+        if (type === 'project' && handle === 'move') {
+            dragInfoData.originalTaskDates = projectTasks.map(t => ({
+                id: t.id,
+                start: parseDateStr(t.start),
+                end: parseDateStr(t.end)
+            }));
+        }
+
+        setDragInfo(dragInfoData);
+    }, [tasks]);
     
     const handleCellInteraction = useCallback((key: string, type: 'down' | 'move' | 'up') => {
         if (type === 'down') {
@@ -553,27 +588,52 @@ const App: React.FC = () => {
             if (dragInfo) {
                 const dx = e.pageX - dragInfo.startX;
                 const dayOffset = Math.round(dx / DATE_CELL_WIDTH);
-                let newStart: Date, newEnd: Date;
-                if (dragInfo.handle === 'move') {
-                    const duration = differenceInDays(dragInfo.originalEnd, dragInfo.originalStart);
-                    newStart = addDays(dragInfo.originalStart, dayOffset);
-                    newEnd = addDays(newStart, duration);
-                } else if (dragInfo.handle === 'resize-left') {
-                    newStart = addDays(dragInfo.originalStart, dayOffset);
-                    newEnd = dragInfo.originalEnd;
-                    if (newStart > newEnd) newStart = newEnd;
+
+                // ドラッグ中のUI更新（ローカルステートの更新）
+                if (dragInfo.type === 'project' && dragInfo.handle === 'move') {
+                    // プロジェクトとタスクを一緒に動かす
+                    const newProjectStart = addDays(dragInfo.originalStart, dayOffset);
+                    const newProjectEnd = addDays(dragInfo.originalEnd, dayOffset);
+                    
+                    setProjects(prevProjects => prevProjects.map(p => 
+                        p.id === dragInfo.item.id 
+                            ? { ...p, startDate: formatDateStr(newProjectStart), endDate: formatDateStr(newProjectEnd) }
+                            : p
+                    ));
+
+                    setTasks(prevTasks => prevTasks.map(t => {
+                        const originalTaskDate = (dragInfo as any).originalTaskDates?.find((otd: any) => otd.id === t.id);
+                        if (originalTaskDate) {
+                            const newTaskStart = addDays(originalTaskDate.start, dayOffset);
+                            const newTaskEnd = addDays(originalTaskDate.end, dayOffset);
+                            return { ...t, start: formatDateStr(newTaskStart), end: formatDateStr(newTaskEnd) };
+                        }
+                        return t;
+                    }));
+
                 } else {
-                    newStart = dragInfo.originalStart;
-                    newEnd = addDays(dragInfo.originalEnd, dayOffset);
-                    if (newEnd < newStart) newEnd = newStart;
+                    // 個別のアイテムを動かす（プロジェクトのリサイズ、タスクの移動・リサイズ）
+                    let newStart: Date, newEnd: Date;
+                    if (dragInfo.handle === 'move') {
+                        const duration = differenceInDays(dragInfo.originalEnd, dragInfo.originalStart);
+                        newStart = addDays(dragInfo.originalStart, dayOffset);
+                        newEnd = addDays(newStart, duration);
+                    } else if (dragInfo.handle === 'resize-left') {
+                        newStart = addDays(dragInfo.originalStart, dayOffset);
+                        newEnd = dragInfo.originalEnd;
+                        if (newStart > newEnd) newStart = newEnd;
+                    } else { // resize-right
+                        newStart = dragInfo.originalStart;
+                        newEnd = addDays(dragInfo.originalEnd, dayOffset);
+                        if (newEnd < newStart) newEnd = newStart;
+                    }
+
+                    if (dragInfo.type === 'project') {
+                        setProjects(prev => prev.map(p => p.id === dragInfo.item.id ? { ...p, startDate: formatDateStr(newStart), endDate: formatDateStr(newEnd) } : p));
+                    } else {
+                        setTasks(prev => prev.map(t => t.id === dragInfo.item.id ? { ...t, start: formatDateStr(newStart), end: formatDateStr(newEnd) } : t));
+                    }
                 }
-                
-                const collectionName = dragInfo.type === 'project' ? 'projects' : 'tasks';
-                const docRef = doc(db, 'artifacts', appId, 'users', user!.uid, collectionName, dragInfo.item.id);
-                const fieldToUpdate = dragInfo.type === 'project' 
-                    ? { startDate: formatDateStr(newStart), endDate: formatDateStr(newEnd) }
-                    : { start: formatDateStr(newStart), end: formatDateStr(newEnd) };
-                updateDoc(docRef, fieldToUpdate).catch(error => console.error("Error updating document:", error));
             }
 
             if (scrollDrag?.isDragging && gridElement) {
@@ -584,12 +644,60 @@ const App: React.FC = () => {
             }
         };
 
-        const handleMouseUpGlobal = () => {
-            if (isSelecting) setIsSelecting(false);
+        const handleMouseUpGlobal = (e: MouseEvent) => {
             if (dragInfo) {
+                // ドラッグ終了時にFirestoreに書き込む
+                const dx = e.pageX - dragInfo.startX;
+                const dayOffset = Math.round(dx / DATE_CELL_WIDTH);
+
+                if (dayOffset !== 0) {
+                    const batch = writeBatch(db);
+
+                    if (dragInfo.type === 'project' && dragInfo.handle === 'move') {
+                        const newProjectStart = addDays(dragInfo.originalStart, dayOffset);
+                        const newProjectEnd = addDays(dragInfo.originalEnd, dayOffset);
+                        const projectDocRef = doc(db, 'artifacts', appId, 'users', user!.uid, 'projects', dragInfo.item.id);
+                        batch.update(projectDocRef, { startDate: formatDateStr(newProjectStart), endDate: formatDateStr(newProjectEnd) });
+
+                        (dragInfo as any).originalTaskDates.forEach((otd: any) => {
+                            const newTaskStart = addDays(otd.start, dayOffset);
+                            const newTaskEnd = addDays(otd.end, dayOffset);
+                            const taskDocRef = doc(db, 'artifacts', appId, 'users', user!.uid, 'tasks', otd.id);
+                            batch.update(taskDocRef, { start: formatDateStr(newTaskStart), end: formatDateStr(newTaskEnd) });
+                        });
+
+                    } else {
+                        let newStart: Date, newEnd: Date;
+                        if (dragInfo.handle === 'move') {
+                            const duration = differenceInDays(dragInfo.originalEnd, dragInfo.originalStart);
+                            newStart = addDays(dragInfo.originalStart, dayOffset);
+                            newEnd = addDays(newStart, duration);
+                        } else if (dragInfo.handle === 'resize-left') {
+                            newStart = addDays(dragInfo.originalStart, dayOffset);
+                            newEnd = dragInfo.originalEnd;
+                            if (newStart > newEnd) newStart = newEnd;
+                        } else { // resize-right
+                            newStart = dragInfo.originalStart;
+                            newEnd = addDays(dragInfo.originalEnd, dayOffset);
+                            if (newEnd < newStart) newEnd = newStart;
+                        }
+                        const collectionName = dragInfo.type === 'project' ? 'projects' : 'tasks';
+                        const docRef = doc(db, 'artifacts', appId, 'users', user!.uid, collectionName, dragInfo.item.id);
+                        const fieldToUpdate = dragInfo.type === 'project' 
+                            ? { startDate: formatDateStr(newStart), endDate: formatDateStr(newEnd) }
+                            : { start: formatDateStr(newStart), end: formatDateStr(newEnd) };
+                        batch.update(docRef, fieldToUpdate);
+                    }
+                    
+                    batch.commit().catch(error => console.error("Error writing batch:", error));
+                }
+
                 setDragInfo(null);
                 document.body.style.cursor = 'auto';
             }
+
+            if (isSelecting) setIsSelecting(false);
+            
             if (scrollDrag?.isDragging && gridElement) {
                 setScrollDrag(null);
                 gridElement.style.cursor = 'auto';
@@ -670,7 +778,6 @@ const App: React.FC = () => {
         if (id && id !== "0") {
             await updateDoc(doc(collRef, id), dataToSave);
         } else {
-            // ★★★ 修正: 新規プロジェクトの場合、色が設定されていなければ自動で割り当てる ★★★
             if (!dataToSave.color) {
                 const randomColor = COLOR_OPTIONS[Math.floor(Math.random() * COLOR_OPTIONS.length)];
                 dataToSave.color = randomColor.color;
@@ -795,17 +902,41 @@ const App: React.FC = () => {
                         const tasksHeight = maxLevel > 0 ? BAR_V_MARGIN + (maxLevel * (TASK_BAR_HEIGHT + BAR_V_MARGIN)) - BAR_V_MARGIN : 0;
                         const projectRowHeight = ROW_TOP_MARGIN + PROJECT_BAR_HEIGHT + tasksHeight + ROW_BOTTOM_MARGIN;
 
+                        const projectTasks = tasks.filter(t => t.projectId === project.id);
+                        let displayStartDateStr = project.startDate;
+                        let displayEndDateStr = project.endDate;
+                        
+                        if (projectTasks.length > 0) {
+                            const validTasks = projectTasks.filter(t => t.start && t.end);
+                            if (validTasks.length > 0) {
+                                const startDates = validTasks.map(t => parseDateStr(t.start));
+                                const endDates = validTasks.map(t => parseDateStr(t.end));
+
+                                const minStartDate = new Date(Math.min(...startDates.map(d => d.getTime())));
+                                const maxEndDate = new Date(Math.max(...endDates.map(d => d.getTime())));
+                                
+                                displayStartDateStr = formatDateStr(minStartDate);
+                                displayEndDateStr = formatDateStr(maxEndDate);
+                            }
+                        }
+
+                        const displayProject = {
+                            ...project,
+                            startDate: displayStartDateStr,
+                            endDate: displayEndDateStr,
+                        };
+
                         return (
                         <React.Fragment key={project.id}>
                             <div style={{height: `${projectRowHeight}px`}} className={`sticky left-0 z-20 bg-white border-b border-r border-gray-300 p-2 flex items-start pt-2 cursor-pointer border-l-4 ${project.borderColor}`} onClick={() => setModalState({ type: 'project', data: { id: project.id } })}>
                                 <div className="overflow-hidden">
                                     <p className="font-bold truncate" title={project.name}>{project.name}</p>
-                                    <p className="text-xs text-gray-500">{project.startDate && project.endDate ? `${project.startDate} ~ ${project.endDate}` : '工期未設定'}</p>
+                                    <p className="text-xs text-gray-500">{displayStartDateStr && displayEndDateStr ? `${displayStartDateStr} ~ ${displayEndDateStr}` : '工期未設定'}</p>
                                 </div>
                                 <button onClick={(e) => { e.stopPropagation(); setModalState({ type: 'ai', data: { type: 'task', project } }); }} className="p-1 rounded-full hover:bg-gray-200 flex-shrink-0" title="AIでタスク提案"><BrainCircuit size={18} className="text-purple-600" /></button>
                             </div>
                             <div className="col-start-2 col-span-full relative border-b border-gray-300" style={{height: `${projectRowHeight}px`}}>
-                                <GanttBar item={project} type="project" viewStartDate={viewStartDate} onMouseDown={handleGanttMouseDown} color={project.color} />
+                                <GanttBar item={displayProject} type="project" viewStartDate={viewStartDate} onMouseDown={handleGanttMouseDown} color={project.color} />
                                 {positionedTasks.map(task => (
                                     <GanttBar key={task.id} item={task} type="task" viewStartDate={viewStartDate} onMouseDown={handleGanttMouseDown} color={project.color} />
                                 ))}
@@ -1020,36 +1151,39 @@ const ProjectEditModal: React.FC<{
     const [name, setName] = useState('');
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
-    // ★★★ 修正: 色の状態を管理する ★★★
     const [color, setColor] = useState('');
     const [borderColor, setBorderColor] = useState('');
     const [localTasks, setLocalTasks] = useState<Task[]>([]);
 
     useEffect(() => {
-        if (project) {
-            setName(project.name);
-            setStartDate(project.startDate || '');
-            setEndDate(project.endDate || '');
-            // ★★★ 修正: 既存の色を設定 ★★★
-            setColor(project.color || '');
-            setBorderColor(project.borderColor || '');
-            setLocalTasks(tasks);
-        } else {
-             setName('');
-            setStartDate('');
-            setEndDate('');
-            setLocalTasks([]);
-            // ★★★ 修正: 新規プロジェクトのデフォルト色を設定 ★★★
-            const defaultColor = COLOR_OPTIONS[0];
-            setColor(defaultColor.color);
-            setBorderColor(defaultColor.borderColor);
+        if (isOpen) {
+            if (project) {
+                setName(project.name);
+                setStartDate(project.startDate || '');
+                setEndDate(project.endDate || '');
+                setColor(project.color || '');
+                setBorderColor(project.borderColor || '');
+            } else {
+                setName('');
+                setStartDate('');
+                setEndDate('');
+                const defaultColor = COLOR_OPTIONS[0];
+                setColor(defaultColor.color);
+                setBorderColor(defaultColor.borderColor);
+            }
         }
-    }, [project, tasks, isOpen]);
+    }, [isOpen, project]);
+
+    useEffect(() => {
+        if (isOpen) {
+            setLocalTasks(tasks);
+        }
+    }, [isOpen, tasks]);
+
 
     const handleProjectSave = () => {
         if (!name) { alert('現場名を入力してください。'); return; }
         if (startDate && endDate && startDate > endDate) { alert('終了日は開始日以降に設定してください。'); return; }
-        // ★★★ 修正: 色情報を含めて保存 ★★★
         onSave({ ...project, id: project?.id || "0", name, startDate: startDate || null, endDate: endDate || null, color, borderColor });
         onClose();
     };
@@ -1088,7 +1222,6 @@ const ProjectEditModal: React.FC<{
                     </div>
                 </div>
 
-                {/* ★★★ 追加: カラーピッカー ★★★ */}
                 <div className="p-4 border rounded-lg">
                     <h4 className="text-lg font-semibold mb-3 flex items-center"><Palette size={20} className="mr-2" />色を選択</h4>
                     <div className="flex flex-wrap gap-3">
