@@ -1,14 +1,14 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { addDays, format, differenceInDays, parseISO } from 'date-fns';
 import { ja } from 'date-fns/locale';
-import { Plus, Copy, Clipboard, BrainCircuit, Trash2, X, Bell, Save, XCircle, Pencil, AlertCircle } from 'lucide-react';
+import { Plus, Copy, Clipboard, BrainCircuit, Trash2, X, Bell, Save, XCircle, Pencil, AlertCircle, Palette } from 'lucide-react';
 
 // Firebase SDKのインポート
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged, type User, signInWithCustomToken } from 'firebase/auth';
 import { 
     getFirestore, collection, doc, onSnapshot, 
-    addDoc, updateDoc, deleteDoc, writeBatch, query, where, getDocs,setDoc
+    addDoc, updateDoc, deleteDoc, writeBatch, query, where, getDocs, setDoc
 } from 'firebase/firestore';
 
 // グローバル変数をTypeScriptに認識させる
@@ -62,6 +62,7 @@ const firebaseConfig = typeof __firebase_config !== 'undefined' && __firebase_co
 
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
+// OpenWeather API Constants
 const API_KEY = '9d87dcc7996d69d1a64804dabb7795df'; 
 const LAT = '39.14';
 const LON = '141.14';
@@ -77,6 +78,18 @@ const TASK_BAR_HEIGHT = 28;
 const BAR_V_MARGIN = 4;
 const WORKER_HEADER_HEIGHT = 40;
 const WORKER_ROW_HEIGHT = 50;
+
+// ★★★ 追加: 色の選択肢 ★★★
+const COLOR_OPTIONS = [
+    { color: 'bg-teal-500', borderColor: 'border-teal-700' },
+    { color: 'bg-orange-500', borderColor: 'border-orange-700' },
+    { color: 'bg-red-500', borderColor: 'border-red-700' },
+    { color: 'bg-yellow-500', borderColor: 'border-yellow-700' },
+    { color: 'bg-indigo-500', borderColor: 'border-indigo-700' },
+    { color: 'bg-purple-500', borderColor: 'border-purple-700' },
+    { color: 'bg-pink-500', borderColor: 'border-pink-700' },
+    { color: 'bg-blue-500', borderColor: 'border-blue-700' },
+];
 
 
 // --- 日付ヘルパー関数 (Date Helpers) ---
@@ -618,48 +631,57 @@ const App: React.FC = () => {
     }, [dragInfo, isSelecting, assignments, selectedKeys, selection.startKey, clipboard, showNotification, scrollDrag, db, user]);
 
     const handleSaveAssignment = (key: string, newAssignments: Assignment[]) => {
-    const docRef = doc(db, 'artifacts', appId, 'users', user!.uid, 'assignments', key);
-    // setDocを使用して、ドキュメントの作成と更新を行う
-    // { merge: true } オプションは、ドキュメントの他のフィールドを上書きせずに更新するために使用します
-    setDoc(docRef, { assignments: newAssignments }, { merge: true }).catch(error => {
-        console.error("Error saving assignment:", error);
-        showNotification('予定の保存に失敗しました。', 'error');
-    });
+      if (!db || !user) {
+          showNotification('データベースに接続されていません。', 'error');
+          return;
+      }
+      const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'assignments', key);
+      setDoc(docRef, { assignments: newAssignments })
+        .then(() => {
+            setAssignments(prev => ({...prev, [key]: newAssignments}));
+        })
+        .catch(error => {
+            console.error("Error saving assignment:", error);
+            showNotification('予定の保存に失敗しました。', 'error');
+        });
     };
 
     const handleSaveTask = async (taskToSave: Task) => {
         const { id, ...taskData } = taskToSave;
         const collRef = collection(db, 'artifacts', appId, 'users', user!.uid, 'tasks');
-        console.log(`デバッグ: Firestoreへのタスク保存開始: /tasks/${id || '(new)'}`, taskData);
         if (id && id !== "0") {
             await updateDoc(doc(collRef, id), taskData);
         } else {
             await addDoc(collRef, taskData);
         }
-        console.log("デバッグ: タスク保存完了");
     };
 
     const handleDeleteTask = async (taskId: string) => {
-        console.log(`デバッグ: Firestoreからのタスク削除開始: /tasks/${taskId}`);
         const docRef = doc(db, 'artifacts', appId, 'users', user!.uid, 'tasks', taskId);
         await deleteDoc(docRef);
-        console.log("デバッグ: タスク削除完了");
     };
     
     const handleSaveProject = async (projectToSave: Project) => {
         const { id, ...projectData } = projectToSave;
         const collRef = collection(db, 'artifacts', appId, 'users', user!.uid, 'projects');
-        console.log(`デバッグ: Firestoreへのプロジェクト保存開始: /projects/${id || '(new)'}`, projectData);
+        
+        let dataToSave = {...projectData};
+
         if (id && id !== "0") {
-            await updateDoc(doc(collRef, id), projectData);
+            await updateDoc(doc(collRef, id), dataToSave);
         } else {
-            await addDoc(collRef, projectData);
+            // ★★★ 修正: 新規プロジェクトの場合、色が設定されていなければ自動で割り当てる ★★★
+            if (!dataToSave.color) {
+                const randomColor = COLOR_OPTIONS[Math.floor(Math.random() * COLOR_OPTIONS.length)];
+                dataToSave.color = randomColor.color;
+                dataToSave.borderColor = randomColor.borderColor;
+            }
+            await addDoc(collRef, dataToSave);
         }
         showNotification('現場情報を保存しました');
     };
 
     const handleDeleteProject = async (projectId: string) => {
-        console.log(`デバッグ: プロジェクト削除開始: ${projectId}`);
         const batch = writeBatch(db);
         const projectDocRef = doc(db, 'artifacts', appId, 'users', user!.uid, 'projects', projectId);
         batch.delete(projectDocRef);
@@ -667,7 +689,6 @@ const App: React.FC = () => {
         const tasksQuery = query(collection(db, 'artifacts', appId, 'users', user!.uid, 'tasks'), where("projectId", "==", projectId));
         const tasksSnapshot = await getDocs(tasksQuery);
         tasksSnapshot.forEach(doc => {
-            console.log(`デバッグ: 関連タスク削除: ${doc.id}`);
             batch.delete(doc.ref);
         });
 
@@ -678,7 +699,6 @@ const App: React.FC = () => {
     const handleSaveWorker = async (workerToSave: Worker) => {
         const { id, ...workerData } = workerToSave;
         const collRef = collection(db, 'artifacts', appId, 'users', user!.uid, 'workers');
-        console.log(`デバッグ: Firestoreへの作業員保存開始: /workers/${id || '(new)'}`, workerData);
         if (id && id !== "0") {
             await updateDoc(doc(collRef, id), workerData);
         } else {
@@ -688,7 +708,6 @@ const App: React.FC = () => {
     }
 
     const handleDeleteWorker = async (workerId: string) => {
-        console.log(`デバッグ: 作業員削除開始: ${workerId}`);
         const batch = writeBatch(db);
         const workerDocRef = doc(db, 'artifacts', appId, 'users', user!.uid, 'workers', workerId);
         batch.delete(workerDocRef);
@@ -819,7 +838,7 @@ const App: React.FC = () => {
                 </div>
             </div>
 
-            <AssignmentModal isOpen={modalState.type === 'assignment'} onClose={() => setModalState({ type: null, data: null })} cellKey={modalState.data?.cellKey} selectedKeys={modalState.data?.selectedKeys || new Set()} assignments={assignments} projects={projects} onSave={handleSaveAssignment} clipboard={clipboard} onCopy={(data) => { setClipboard(data); showNotification('コピーしました'); }} onPaste={(targetKeys) => { if (clipboard !== null) { setAssignments(prev => { const newAssignments = { ...prev }; targetKeys.forEach(key => { newAssignments[key] = [...clipboard] }); return newAssignments; }); showNotification(`${targetKeys.size}件に貼り付けました`); } }} />
+            <AssignmentModal isOpen={modalState.type === 'assignment'} onClose={() => setModalState({ type: null, data: null })} cellKey={modalState.data?.cellKey} selectedKeys={modalState.data?.selectedKeys || new Set()} assignments={assignments} projects={projects} onSave={handleSaveAssignment} clipboard={clipboard} onCopy={(data) => { setClipboard(data); showNotification('コピーしました'); }} onPaste={(targetKeys) => { if (clipboard !== null) { const batch = writeBatch(db); targetKeys.forEach(key => { const docRef = doc(db, 'artifacts', appId, 'users', user!.uid, 'assignments', key); batch.set(docRef, { assignments: clipboard }); }); batch.commit().then(() => showNotification(`${targetKeys.size}件に貼り付けました`)).catch(err => console.error(err));} }} />
             <ProjectEditModal
                 isOpen={modalState.type === 'project'}
                 onClose={() => setModalState({ type: null, data: null })}
@@ -1001,6 +1020,9 @@ const ProjectEditModal: React.FC<{
     const [name, setName] = useState('');
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
+    // ★★★ 修正: 色の状態を管理する ★★★
+    const [color, setColor] = useState('');
+    const [borderColor, setBorderColor] = useState('');
     const [localTasks, setLocalTasks] = useState<Task[]>([]);
 
     useEffect(() => {
@@ -1008,19 +1030,27 @@ const ProjectEditModal: React.FC<{
             setName(project.name);
             setStartDate(project.startDate || '');
             setEndDate(project.endDate || '');
+            // ★★★ 修正: 既存の色を設定 ★★★
+            setColor(project.color || '');
+            setBorderColor(project.borderColor || '');
             setLocalTasks(tasks);
         } else {
              setName('');
             setStartDate('');
             setEndDate('');
             setLocalTasks([]);
+            // ★★★ 修正: 新規プロジェクトのデフォルト色を設定 ★★★
+            const defaultColor = COLOR_OPTIONS[0];
+            setColor(defaultColor.color);
+            setBorderColor(defaultColor.borderColor);
         }
     }, [project, tasks, isOpen]);
 
     const handleProjectSave = () => {
         if (!name) { alert('現場名を入力してください。'); return; }
         if (startDate && endDate && startDate > endDate) { alert('終了日は開始日以降に設定してください。'); return; }
-        onSave({ ...project, id: project?.id || "0", name, startDate: startDate || null, endDate: endDate || null, color: project?.color || '', borderColor: project?.borderColor || '' });
+        // ★★★ 修正: 色情報を含めて保存 ★★★
+        onSave({ ...project, id: project?.id || "0", name, startDate: startDate || null, endDate: endDate || null, color, borderColor });
         onClose();
     };
     
@@ -1055,6 +1085,21 @@ const ProjectEditModal: React.FC<{
                             <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="input flex-1" title="開始日"/>
                             <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="input flex-1" title="終了日"/>
                         </div>
+                    </div>
+                </div>
+
+                {/* ★★★ 追加: カラーピッカー ★★★ */}
+                <div className="p-4 border rounded-lg">
+                    <h4 className="text-lg font-semibold mb-3 flex items-center"><Palette size={20} className="mr-2" />色を選択</h4>
+                    <div className="flex flex-wrap gap-3">
+                        {COLOR_OPTIONS.map((c, index) => (
+                            <button
+                                key={index}
+                                onClick={() => { setColor(c.color); setBorderColor(c.borderColor); }}
+                                className={`w-8 h-8 rounded-full ${c.color} cursor-pointer transform hover:scale-110 transition-transform ${borderColor === c.borderColor ? 'ring-2 ring-offset-2 ring-blue-500' : ''}`}
+                                title={c.color}
+                            />
+                        ))}
                     </div>
                 </div>
 
@@ -1164,7 +1209,8 @@ const AiModal: React.FC<{
                             }
                         });
                     });
-                    const result = await aiApi.analyzeRisk(data.date, `降水 ${weather.precip}% / 気温 ${weather.temp}°C`, Array.from(dailyTasks).join('、'));
+                    const weatherString = weather ? `降水 ${weather.precip}% / 気温 ${weather.temp}°C` : 'データなし';
+                    const result = await aiApi.analyzeRisk(data.date, weatherString, Array.from(dailyTasks).join('、'));
                     setContent(result);
                     setSubtitle('AIによるリスク分析結果です。');
                 }
