@@ -8,7 +8,7 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged, type User, signInWithCustomToken } from 'firebase/auth';
 import { 
     getFirestore, collection, doc, onSnapshot, 
-    addDoc, updateDoc, deleteDoc, writeBatch, query, where, getDocs 
+    addDoc, updateDoc, deleteDoc, writeBatch, query, where, getDocs,setDoc
 } from 'firebase/firestore';
 
 // グローバル変数をTypeScriptに認識させる
@@ -618,14 +618,13 @@ const App: React.FC = () => {
     }, [dragInfo, isSelecting, assignments, selectedKeys, selection.startKey, clipboard, showNotification, scrollDrag, db, user]);
 
     const handleSaveAssignment = (key: string, newAssignments: Assignment[]) => {
-      const docRef = doc(db, 'artifacts', appId, 'users', user!.uid, 'assignments', key);
-      updateDoc(docRef, { assignments: newAssignments }).catch(error => {
-          if (error.code === 'not-found') {
-              addDoc(collection(db, 'artifacts', appId, 'users', user!.uid, 'assignments'), { assignments: newAssignments, _id: key })
-          } else {
-              console.error("Error saving assignment:", error)
-          }
-      });
+    const docRef = doc(db, 'artifacts', appId, 'users', user!.uid, 'assignments', key);
+    // setDocを使用して、ドキュメントの作成と更新を行う
+    // { merge: true } オプションは、ドキュメントの他のフィールドを上書きせずに更新するために使用します
+    setDoc(docRef, { assignments: newAssignments }, { merge: true }).catch(error => {
+        console.error("Error saving assignment:", error);
+        showNotification('予定の保存に失敗しました。', 'error');
+    });
     };
 
     const handleSaveTask = async (taskToSave: Task) => {
