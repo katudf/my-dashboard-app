@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { addDays, format, differenceInDays, parseISO, startOfDay } from 'date-fns';
 import { ja } from 'date-fns/locale';
 import { Plus, Copy, Clipboard, BrainCircuit, Trash2, X, Bell, Save, XCircle, Pencil, AlertCircle, Palette } from 'lucide-react';
+import { formatDateStr, parseDateStr, calculateAge } from './lib/utils'; // calculateAge をインポート
 
 // Firebase SDKのインポート
 import { initializeApp } from 'firebase/app';
@@ -36,7 +37,7 @@ export interface Task extends TaskData { id: string; }
 
 export interface PositionedTask extends Task { level: number; }
 
-export interface WorkerData { name: string; }
+export interface WorkerData { name: string; birthDate?: string; }
 export interface Worker extends WorkerData { id: string; }
 
 export interface ProjectAssignment { type: 'project'; id: string; }
@@ -95,10 +96,6 @@ const COLOR_OPTIONS = [
 // --- 日付ヘルパー関数 (Date Helpers) ---
 const today = new Date();
 const viewStartDate = startOfDay(addDays(today, -10)); // タイムゾーンの問題を避けるためstartOfDayを使用
-
-const formatDateStr = (date: Date): string => format(date, 'yyyy-MM-dd');
-const parseDateStr = (dateStr: string): Date => parseISO(dateStr); // ISO文字列からDateへ
-
 // --- 色ヘルパー関数 ---
 const getTaskBarColor = (projectColor: string): string => {
   const colorMap: { [key: string]: string } = {
@@ -953,7 +950,10 @@ const App: React.FC = () => {
                     {workers.map(worker => (
                         <React.Fragment key={worker.id}>
                             <div style={{height: `${WORKER_ROW_HEIGHT}px`}} className="sticky left-0 z-20 bg-white border-b border-r border-gray-300 p-2 font-semibold flex items-center justify-between cursor-pointer" onClick={() => setModalState({ type: 'worker', data: { id: worker.id } })}>
-                                <span>{worker.name}</span>
+                                <div>
+                                    <span>{worker.name}</span>
+                                    {calculateAge(worker.birthDate) !== null && <span className="text-sm text-gray-500 ml-2">({calculateAge(worker.birthDate)}歳)</span>}
+                                </div>
                                 <button onClick={(e) => { e.stopPropagation(); setModalState({ type: 'ai', data: { type: 'memo', worker } }); }} className="p-1 rounded-full hover:bg-gray-200 flex-shrink-0" title="AIで申し送りメモ作成"><BrainCircuit size={18} className="text-blue-600" /></button>
                             </div>
                             {dates.map(date => {

@@ -27,4 +27,4 @@ openweathermapapi_key
 # Firebase configuration
 firebaseConfig.ts
 
-yahooweatherapi.ts
+.lib/constants.ts
