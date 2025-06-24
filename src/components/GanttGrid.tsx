@@ -1,5 +1,5 @@
 // c/Users/katuy/OneDrive/my-dashboard-app/src/components/GanttGrid.tsx
-import React from 'react';
+import React, { useEffect } from 'react';
 import { format } from 'date-fns';
 import { ja } from 'date-fns/locale';
 import { GanttBar } from './GanttBar';
@@ -30,25 +30,53 @@ interface GanttGridProps {
   selection: { startKey: string | null; endKey: string | null };
   selectedKeys: Set<string>;
   onCellInteraction: (key: string, type: 'down' | 'move' | 'up') => void;
-  onProjectClick: (projectId: string) => void;
+  // onProjectClick: (projectId: string) => void;
   onWorkerClick: (workerId: string) => void;
   onGanttMouseDown: (e: React.MouseEvent, item: Project | Task, type: 'project' | 'task', handle: 'move' | 'resize-left' | 'resize-right') => void;
   onProjectEdit?: (projectId: string) => void;
   scrollToProjectStart?: (startDate: Date) => void;
+  scrollToToday?: () => void;
+  gridRef?: React.RefObject<HTMLDivElement>;
 }
 
 export const GanttGrid: React.FC<GanttGridProps> = ({
   projects, tasks, workers, assignments, dates, holidays, weatherData,
-  positionedTasksByProject, selection, selectedKeys,
-  onCellInteraction, onProjectClick, onWorkerClick, onGanttMouseDown, onProjectEdit, scrollToProjectStart
+  positionedTasksByProject, selection, selectedKeys, 
+  onCellInteraction, onWorkerClick, onGanttMouseDown, onProjectEdit, scrollToProjectStart,
+  scrollToToday,
+  gridRef,
 }) => {
+  // ナビゲーションで日付範囲が変わったときに今日が表示範囲内なら自動でジャンプ
+  useEffect(() => {
+    if (!gridRef || !gridRef.current) return;
+    const todayIdx = dates.findIndex(d => format(d, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd'));
+    if (todayIdx >= 0) {
+      gridRef.current.scrollLeft = (todayIdx * DATE_CELL_WIDTH) - (gridRef.current.clientWidth / 2) + STICKY_COL_WIDTH;
+    }
+  }, [dates, gridRef]);
+
   return (
     <div style={{ position: 'relative', width: '100%' }}>
       {/* ヘッダーラッパー: 横スクロール時もstickyを維持 */}
       <div style={{ position: 'sticky', top: 0, zIndex: 100 }}>
         <div className="grid" style={{ gridTemplateColumns: `${STICKY_COL_WIDTH}px repeat(${dates.length}, ${DATE_CELL_WIDTH}px)` }}>
-          <div className="sticky top-0 left-0 z-50 bg-gray-200 border-b border-r border-gray-300 p-2 flex items-center" style={{ height: HEADER_HEIGHT }}>
+          <div className="sticky top-0 left-0 z-50 bg-gray-200 border-b border-r border-gray-300 p-2 flex items-center justify-between" style={{ height: HEADER_HEIGHT }}>
             <span className="font-bold">現場名</span>
+            <button
+              className="ml-2 px-2 py-1 bg-blue-500 text-white rounded text-xs hover:bg-blue-600 transition"
+              onClick={() => {
+                if (!gridRef || !gridRef.current) return;
+                // 今日が範囲外なら今日を含む範囲にナビゲーション
+                const today = new Date();
+                const todayIdx = dates.findIndex(d => format(d, 'yyyy-MM-dd') === format(today, 'yyyy-MM-dd'));
+                if (todayIdx === -1) {
+                  // App.tsxのscrollToTodayを呼ぶ（props経由）
+                  if (scrollToToday) scrollToToday();
+                } else {
+                  gridRef.current.scrollLeft = (todayIdx * DATE_CELL_WIDTH) - (gridRef.current.clientWidth / 2) + STICKY_COL_WIDTH;
+                }
+              }}
+            >今日へ</button>
           </div>
           {dates.map(date => {
             const dateStr = format(date, 'yyyy-MM-dd');
@@ -92,9 +120,8 @@ export const GanttGrid: React.FC<GanttGridProps> = ({
             <React.Fragment key={project.id}>
               <div
                 style={{ height: `${projectRowHeight}px`, left: 0, zIndex: 40 }}
-                className={`sticky left-0 bg-white border-b border-r border-gray-300 p-2 flex items-start pt-2 cursor-pointer border-l-4 ${project.borderColor}`}
+                className={`sticky left-0 bg-white border-b border-r border-gray-300 p-2 flex items-start pt-2 cursor-pointer border-l-4 ${project.borderColor}`} 
                 onClick={e => {
-                  onProjectClick(project.id);
                   // 工期開始日ジャンプ処理
                   if (typeof scrollToProjectStart === 'function' && project.startDate) {
                     const date = new Date(project.startDate);
