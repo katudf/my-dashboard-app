@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { addDays, format, startOfDay } from 'date-fns';
+import { addDays, format, startOfDay, startOfWeek } from 'date-fns';
 
 // Hooks
 import { useDataFetching } from './hooks/useDataFetching';
@@ -18,7 +18,7 @@ import { DAYS_TO_SHOW, STICKY_COL_WIDTH, DATE_CELL_WIDTH } from './lib/constants
 import type { Task, Assignment } from './lib/types';
 
 const today = new Date();
-const viewStartDate = startOfDay(addDays(today, -10));
+const weekStart = startOfWeek(today, { weekStartsOn: 1 }); // 月曜始まり
 
 const App: React.FC = () => {
     const {
@@ -29,9 +29,11 @@ const App: React.FC = () => {
     // 他のstate
     const [modalState, setModalState] = useState<{ type: string | null; data: any }>({ type: null, data: null });
     const [clipboard, setClipboard] = useState<Assignment[] | null>(null);
+    const [viewStartDate, setViewStartDate] = useState<Date>(weekStart);
+    const [numDays, setNumDays] = useState<number>(35); // 初期表示日数（例: 5週間分）
 
     const gridRef = useRef<HTMLDivElement>(null);
-    const dates = useMemo(() => Array.from({ length: DAYS_TO_SHOW }, (_, i) => addDays(viewStartDate, i)), []);
+    const dates = useMemo(() => Array.from({ length: numDays }, (_, i) => addDays(viewStartDate, i)), [viewStartDate, numDays]);
 
     // GanttGrid用の最低限のstateやダミー値
     const [selection, setSelection] = useState<{ startKey: string | null; endKey: string | null }>({ startKey: null, endKey: null });
@@ -83,6 +85,9 @@ const App: React.FC = () => {
         return <div className="flex items-center justify-center h-screen bg-gray-100">...Loading</div>;
     }
 
+    // ナビゲーション用関数例
+    const scrollDays = (days: number) => setViewStartDate(prev => addDays(prev, days));
+
     return (
         <div className="bg-gray-100 text-gray-800 p-4 sm:p-6 h-screen flex flex-col font-sans">
             <header className="mb-4 flex-shrink-0">
@@ -114,6 +119,12 @@ const App: React.FC = () => {
                       }
                     }}
                 />
+            </div>
+
+            {/* ナビゲーション例: */}
+            <div className="flex gap-2 mt-2">
+                <button onClick={() => scrollDays(-numDays)} className="px-2 py-1 bg-gray-200 rounded">前へ</button>
+                <button onClick={() => scrollDays(numDays)} className="px-2 py-1 bg-gray-200 rounded">次へ</button>
             </div>
 
             {/* Modals */}
