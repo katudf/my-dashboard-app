@@ -105,6 +105,14 @@ const App: React.FC = () => {
                     onProjectClick={() => {}}
                     onWorkerClick={() => {}}
                     onGanttMouseDown={handleGanttMouseDown}
+                    onProjectEdit={(projectId) => setModalState({ type: 'project', data: { id: projectId } })}
+                    scrollToProjectStart={(startDate) => {
+                      if (!gridRef.current) return;
+                      const todayIdx = dates.findIndex(d => format(d, 'yyyy-MM-dd') === format(startDate, 'yyyy-MM-dd'));
+                      if (todayIdx >= 0) {
+                        gridRef.current.scrollLeft = (todayIdx * DATE_CELL_WIDTH) - (gridRef.current.clientWidth / 2) + STICKY_COL_WIDTH;
+                      }
+                    }}
                 />
             </div>
 

@@ -32,12 +32,14 @@ interface GanttGridProps {
   onProjectClick: (projectId: string) => void;
   onWorkerClick: (workerId: string) => void;
   onGanttMouseDown: (e: React.MouseEvent, item: Project | Task, type: 'project' | 'task', handle: 'move' | 'resize-left' | 'resize-right') => void;
+  onProjectEdit?: (projectId: string) => void;
+  scrollToProjectStart?: (startDate: Date) => void;
 }
 
 export const GanttGrid: React.FC<GanttGridProps> = ({
   projects, tasks, workers, assignments, dates, holidays, weatherData,
   positionedTasksByProject, selection, selectedKeys,
-  onCellInteraction, onProjectClick, onWorkerClick, onGanttMouseDown
+  onCellInteraction, onProjectClick, onWorkerClick, onGanttMouseDown, onProjectEdit, scrollToProjectStart
 }) => {
   return (
     <div className="grid" style={{ gridTemplateColumns: `${STICKY_COL_WIDTH}px repeat(${dates.length}, ${DATE_CELL_WIDTH}px)` }}>
@@ -80,8 +82,22 @@ export const GanttGrid: React.FC<GanttGridProps> = ({
         const projectRowHeight = ROW_TOP_MARGIN + PROJECT_BAR_HEIGHT + tasksHeight + ROW_BOTTOM_MARGIN;
         return (
           <React.Fragment key={project.id}>
-            <div style={{ height: `${projectRowHeight}px` }} className={`sticky left-0 z-20 bg-white border-b border-r border-gray-300 p-2 flex items-start pt-2 cursor-pointer border-l-4 ${project.borderColor}`}
-              onClick={() => onProjectClick(project.id)}>
+            <div
+              style={{ height: `${projectRowHeight}px` }}
+              className={`sticky left-0 z-20 bg-white border-b border-r border-gray-300 p-2 flex items-start pt-2 cursor-pointer border-l-4 ${project.borderColor}`}
+              onClick={e => {
+                onProjectClick(project.id);
+                // 工期開始日ジャンプ処理
+                if (typeof scrollToProjectStart === 'function' && project.startDate) {
+                  const date = new Date(project.startDate);
+                  scrollToProjectStart(date);
+                }
+              }}
+              onContextMenu={e => {
+                e.preventDefault();
+                if (typeof onProjectEdit === 'function') onProjectEdit(project.id);
+              }}
+            >
               <div className="overflow-hidden">
                 <p className="font-bold truncate" title={project.name}>{project.name}</p>
                 <p className="text-xs text-gray-500">{project.startDate && project.endDate ? `${project.startDate} ~ ${project.endDate}` : '工期未設定'}</p>
