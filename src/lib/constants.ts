@@ -9,9 +9,9 @@ export const DAYS_TO_SHOW = 45;
 export const HEADER_HEIGHT = 60;
 export const ROW_TOP_MARGIN = 4;
 export const ROW_BOTTOM_MARGIN = 4;
-export const PROJECT_BAR_HEIGHT = 20;
-export const TASK_BAR_HEIGHT = 20;
-export const BAR_V_MARGIN = 0;
+export const PROJECT_BAR_HEIGHT = 22;
+export const TASK_BAR_HEIGHT = 28;
+export const BAR_V_MARGIN = 4;
 export const WORKER_HEADER_HEIGHT = 40;
 export const WORKER_ROW_HEIGHT = 50;
 
