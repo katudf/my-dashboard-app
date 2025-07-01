@@ -31,3 +31,5 @@ export const getTaskBarColor = (projectColor: string): string => {
   };
   return colorMap[projectColor] || projectColor;
 };
+
+

@@ -24,6 +24,7 @@ export interface WorkerData {
   name: string;
   birthDate?: string | null; // ★★★ 追加: 生年月日 ★★★
   order: number; // ★★★ 追加: 表示順 ★★★
+  nameKana?: string;
 }
 export interface Worker extends WorkerData { id: string; }
 

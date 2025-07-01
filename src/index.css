@@ -36,3 +36,16 @@
         @apply border-4 border-gray-200 border-t-blue-500 rounded-full w-10 h-10 animate-spin;
     }
 }
+/* src/index.css (または適切なCSSファイル) */
+
+/* ProjectRowとWorkerRowのルート要素が内部グリッドコンテナになる */
+.project-row-container,
+.worker-row-container {
+  /* display: grid; はコンポーネントのinline styleで設定されます */
+  /* ここでは必要に応じて追加のスタイルを定義できます */
+}
+
+/* ドラッグハンドルがクリックされたときにテキスト選択を防止 */
+.touch-none {
+  touch-action: none;
+}
