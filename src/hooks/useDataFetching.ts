@@ -16,31 +16,26 @@ export const useDataFetching = () => {
     const [error, setError] = useState<string | null>(null);
 
     const showNotification = useCallback((message: string, type: 'success' | 'error' = 'success') => {
-        // 実際の通知実装に置き換えるか、イベントを発行するなどする
         console.log(`Notification (${type}): ${message}`);
         if(type === 'error') setError(message);
     }, []);
 
     // Firestore data fetching
     useEffect(() => {
-        const collections = {
+        // ★修正点: 構造が違うassignmentsはループから分離する
+        const simpleCollections = {
             projects: setProjects,
             workers: setWorkers,
             tasks: setTasks,
-            assignments: (data: any[]) => {
-                const assignmentsData: Assignments = {};
-                data.forEach(doc => {
-                   assignmentsData[doc.id] = doc.assignments;
-                });
-                setAssignments(assignmentsData);
-            },
         };
 
-        const unsubscribes = Object.entries(collections).map(([colName, setter]) => {
+        const unsubscribes = Object.entries(simpleCollections).map(([colName, setter]) => {
             const collRef = collection(db, 'artifacts', appId, colName);
             return onSnapshot(collRef, (snapshot) => {
                 const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                setter(data as any); // Type assertion is tricky here
+                // `as any`で一度型チェックを回避するが、各setterが正しい型を期待しているため、
+                // Firestoreのデータ構造が崩れない限りは安全。
+                setter(data as any);
                 setIsLoading(false);
             }, (err) => {
                 console.error(`Error fetching ${colName}:`, err);
@@ -48,6 +43,22 @@ export const useDataFetching = () => {
                 setIsLoading(false);
             });
         });
+
+        // assignmentsコレクションはデータ構造が違うので、個別に処理する
+        const unsubAssignments = onSnapshot(collection(db, 'artifacts', appId, 'assignments'), (snapshot) => {
+            const assignmentsData: Assignments = {};
+            snapshot.docs.forEach(doc => {
+                assignmentsData[doc.id] = doc.data().assignments;
+            });
+            setAssignments(assignmentsData);
+            setIsLoading(false);
+        }, (err) => {
+            console.error(`Error fetching assignments:`, err);
+            showNotification(`assignmentsのデータ取得に失敗しました。`, 'error');
+            setIsLoading(false);
+        });
+
+        unsubscribes.push(unsubAssignments);
 
         return () => unsubscribes.forEach(unsub => unsub());
     }, [appId, showNotification]);

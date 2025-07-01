@@ -1,5 +1,6 @@
 // src/modals/ConfirmationModal.tsx
 import React from 'react';
+import type { ReactNode } from 'react';
 import { AlertCircle } from 'lucide-react';
 
 interface ConfirmationModalProps {
@@ -16,7 +17,9 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({ confirmati
     };
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[60] animate-fade-in">
+        // ★★★ 修正点: z-indexを z-[60] から z-[200] に変更 ★★★
+        // これで、z-[150]の編集モーダルよりも、さらに手前に表示される
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[200] animate-fade-in">
             <div className="bg-white rounded-lg p-6 shadow-xl w-11/12 max-w-sm animate-scale-in">
                 <div className="flex items-start">
                     <div className="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10">

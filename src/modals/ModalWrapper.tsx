@@ -1,11 +1,12 @@
 // src/modals/ModalWrapper.tsx
 import React from 'react';
+import type { ReactNode } from 'react';
 import { X } from 'lucide-react';
 
 interface ModalWrapperProps {
   isOpen: boolean;
   onClose: () => void;
-  children: React.ReactNode;
+  children: ReactNode;
   title: string;
   size?: 'md' | 'lg' | 'xl';
 }
@@ -18,8 +19,16 @@ export const ModalWrapper: React.FC<ModalWrapperProps> = ({ isOpen, onClose, chi
         xl: 'md:w-2/3 max-w-4xl',
     };
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 animate-fade-in" onMouseDown={onClose}>
-            <div className={`bg-white rounded-lg shadow-xl w-11/12 ${sizeClasses[size]} animate-scale-in flex flex-col`} onMouseDown={e => e.stopPropagation()}>
+        // ★★★ 修正点: z-indexを z-50 から z-[150] に変更 ★★★
+        // これで、z-100を使っている日付ヘッダーよりも手前に表示される
+        <div
+            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[150] animate-fade-in"
+            onMouseDown={onClose}
+        >
+            <div
+                className={`bg-white rounded-lg shadow-xl w-11/12 ${sizeClasses[size]} animate-scale-in flex flex-col`}
+                onMouseDown={e => e.stopPropagation()}
+            >
                 <div className="flex justify-between items-center mb-4 p-6 border-b">
                     <h3 className="text-xl font-bold">{title}</h3>
                     <button onClick={onClose} className="p-1 rounded-full hover:bg-gray-200"><X size={20} /></button>

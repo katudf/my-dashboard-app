@@ -5,7 +5,7 @@ export interface ProjectData {
   borderColor: string;
   startDate: string | null;
   endDate: string | null;
-  order: number; // ★★★ 追加: 表示順 ★★★
+  order?: number; // ★★★ 修正: orderをオプショナルに ★★★
 }
 export interface Project extends ProjectData { id: string; }
 
@@ -22,8 +22,8 @@ export interface PositionedTask extends Task { level: number; }
 
 export interface WorkerData {
   name: string;
-  birthDate?: string | null; // ★★★ 追加: 生年月日 ★★★
-  order: number; // ★★★ 追加: 表示順 ★★★
+  birthDate?: string | null;
+  order?: number; // ★★★ 修正: orderをオプショナルに ★★★
   nameKana?: string;
 }
 export interface Worker extends WorkerData { id: string; }

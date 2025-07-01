@@ -1,27 +1,29 @@
-import React, { createContext, useState, useContext, useCallback, ReactNode } from 'react';
-import type { Project, Worker } from '../lib/types';
+// src/contexts/UIStateContext.tsx
+import type { ReactNode } from 'react';
+import React, { createContext, useState, useContext, useCallback } from 'react';
 
-type ModalType = 'project' | 'worker' | 'assignment';
-type ModalData = { id: string } | { cellKey: string };
+// 各モーダルが必要とするデータ型を個別に定義
+interface ProjectModalData { type: 'project'; data: { id: string | null }; }
+interface WorkerModalData { type: 'worker'; data: { id: string | null }; }
+interface AssignmentModalData { type: 'assignment'; data: { cellKey: string }; }
+interface AiModalData { type: 'ai'; data: { type: 'task' | 'memo' | 'risk'; [key: string]: any }; }
+
+// それらをまとめた型
+type ModalState = ProjectModalData | WorkerModalData | AssignmentModalData | AiModalData | { type: null; data: null };
 
 interface UIState {
-  modal: {
-    type: ModalType | null;
-    data: ModalData | null;
-  };
-  notification: {
-    message: string;
-    type: 'success' | 'error';
-  } | null;
-  confirmation: {
-    message: string;
-    onConfirm: () => void;
-  } | null;
+  modal: ModalState;
+  notification: { message: string; type: 'success' | 'error'; } | null;
+  confirmation: { message:string; onConfirm: () => void; } | null;
 }
 
 interface UIStateContextType {
   uiState: UIState;
-  openModal: (type: ModalType, data?: ModalData) => void;
+  // この型定義で、呼び出し元の安全性を確保する
+  openModal: <T extends ModalState['type']>(
+    type: T,
+    data: Extract<ModalState, { type: T }>['data']
+  ) => void;
   closeModal: () => void;
   showNotification: (message: string, type?: 'success' | 'error') => void;
   hideNotification: () => void;
@@ -46,7 +48,13 @@ export const UIStateProvider: React.FC<{ children: ReactNode }> = ({ children })
     confirmation: null,
   });
 
-  const openModal = useCallback((type: ModalType, data: ModalData | null = null) => setUiState(s => ({ ...s, modal: { type, data } })), []);
+  // ★修正点: openModalの実装をシンプルにする
+  // これで、Contextのvalueに代入する際の方のエラーが解消される
+  const openModal = useCallback((type: ModalState['type'], data: ModalState['data']) => {
+    // アサーションを使って、stateの型を正しく伝える
+    setUiState(s => ({ ...s, modal: { type, data } as ModalState }));
+  }, []);
+
   const closeModal = useCallback(() => setUiState(s => ({ ...s, modal: { type: null, data: null } })), []);
   const showNotification = useCallback((message: string, type: 'success' | 'error' = 'success') => setUiState(s => ({ ...s, notification: { message, type } })), []);
   const hideNotification = useCallback(() => setUiState(s => ({ ...s, notification: null })), []);
@@ -59,4 +67,3 @@ export const UIStateProvider: React.FC<{ children: ReactNode }> = ({ children })
     <UIStateContext.Provider value={value}>{children}</UIStateContext.Provider>
   );
 };
-

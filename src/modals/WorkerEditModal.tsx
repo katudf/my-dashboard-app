@@ -50,18 +50,17 @@ export const WorkerEditModal: React.FC<WorkerEditModalProps> = ({ isOpen, onClos
                         className="input mt-1"
                     />
                 </div>
-            <div className="mt-4">
-                <label htmlFor="worker-name-kana" className="block text-sm font-medium text-gray-700">フリガナ</label>
-                <div className="mt-1">
-                <input
-                    type="text"
-                    id="worker-name-kana"
-                    value={nameKana}
-                    onChange={(e) => setNameKana(e.target.value)}
-                    className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                />
+                <div>
+                    <label htmlFor="worker-name-kana" className="block text-sm font-medium text-gray-700">フリガナ</label>
+                    <input
+                        type="text"
+                        id="worker-name-kana"
+                        value={nameKana}
+                        onChange={(e) => setNameKana(e.target.value)}
+                        // ★★★ 修正点: 他の入力欄と同じ .input クラスを追加 ★★★
+                        className="input mt-1"
+                    />
                 </div>
-            </div>
                 <div>
                     <label htmlFor="worker-birthdate" className="block text-sm font-medium text-gray-700">生年月日</label>
                     <input

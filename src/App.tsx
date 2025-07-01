@@ -9,7 +9,7 @@ import {
     useSensors,
     DragOverlay,
 } from '@dnd-kit/core';
-import { arrayMove } from '@dnd-kit/sortable'; // arrayMoveのみ使用
+import { arrayMove } from '@dnd-kit/sortable';
 
 import { UIStateProvider, useUIState } from './contexts/UIStateContext';
 import { addDays, format, startOfWeek, subYears, addYears, isBefore, isAfter } from 'date-fns';
@@ -32,67 +32,69 @@ import { WorkerRow } from './components/WorkerRow';
 // Libs & Configs
 import {
     saveProject, saveTask, saveWorker, saveAssignment as saveAssignmentAPI,
-    deleteProject, deleteTask, deleteWorker
+    deleteProject, deleteTask, deleteWorker,
+    // ★★★ インポートを追加 ★★★
+    updateItemsOrder
 } from './services/firestoreService';
 import { writeBatch, doc } from 'firebase/firestore';
 import { db, appId } from './config/firebase';
 
 import { STICKY_COL_WIDTH, DATE_CELL_WIDTH } from './lib/constants';
 import type { Assignment, Project, Worker } from './lib/types';
+
 const today = new Date();
-const weekStart = startOfWeek(today, { weekStartsOn: 1 }); // 月曜始まり
+const weekStart = startOfWeek(today, { weekStartsOn: 1 });
 const minDate = subYears(today, 1);
 const maxDate = addYears(today, 1);
 
 const GanttDashboard: React.FC = () => {
     const {
         projects, workers, tasks, assignments, weatherData, holidays, isLoading,
-        setProjects, setTasks, setAssignments    } = useDataFetching();
+        setProjects, setTasks, setAssignments
+    } = useDataFetching();
     const { uiState, openModal, closeModal, showNotification, hideNotification, requestConfirmation, closeConfirmation } = useUIState();
-    // App.tsx の GanttDashboard コンポーネント内に追加
 
-    // 他のstate
     const [clipboard, setClipboard] = useState<Assignment[] | null>(null);
     const [viewStartDate, setViewStartDate] = useState<Date>(weekStart);
-    const [numDays] = useState<number>(35); // 初期表示日数（例: 5週間分）
+    const [numDays] = useState<number>(35);
     const [isSelecting, setIsSelecting] = useState(false);
-    const [activeId, setActiveId] = useState<string | null>(null); // ドラッグ中のアイテムIDを保持
+    const [activeId, setActiveId] = useState<string | null>(null);
 
     const [orderedProjects, setOrderedProjects] = useState<Project[]>([]);
     const [orderedWorkers, setOrderedWorkers] = useState<Worker[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
 
     const gridRef = useRef<HTMLDivElement>(null);
-    useDragToScroll(gridRef); // ★ フックを呼び出す
+    useDragToScroll(gridRef);
     const dates = useMemo(() => Array.from({ length: numDays }, (_, i) => addDays(viewStartDate, i)), [viewStartDate, numDays]);
 
-    const [selection, setSelection] = useState<{ startKey: string | null; endKey: string | null }>({ startKey: null, endKey: null });    
+    const [selection, setSelection] = useState<{ startKey: string | null; endKey: string | null }>({ startKey: null, endKey: null });
     const selectedKeys = useMemo(() => {
         const keys = new Set<string>();
         if (!selection.startKey || !selection.endKey) return keys;
-    
+
         const parseKey = (key: string) => {
             const parts = key.split('-');
             const workerId = parts[0].substring(1);
             const dateStr = parts.slice(1).join('-');
             return { workerId, dateStr };
         };
-    
+
         const { workerId: startWorkerId, dateStr: startDateStr } = parseKey(selection.startKey);
         const { workerId: endWorkerId, dateStr: endDateStr } = parseKey(selection.endKey);
-    
+
         const startWorkerIndex = workers.findIndex(w => w.id === startWorkerId);
         const endWorkerIndex = workers.findIndex(w => w.id === endWorkerId);
         const startDateIndex = dates.findIndex(d => format(d, 'yyyy-MM-dd') === startDateStr);
         const endDateIndex = dates.findIndex(d => format(d, 'yyyy-MM-dd') === endDateStr);
-    
+
         if (startWorkerIndex === -1 || endWorkerIndex === -1 || startDateIndex === -1 || endDateIndex === -1) return keys;
-    
+
         const minWorkerIndex = Math.min(startWorkerIndex, endWorkerIndex);
         const maxWorkerIndex = Math.max(startWorkerIndex, endWorkerIndex);
         const minDateIndex = Math.min(startDateIndex, endDateIndex);
         const maxDateIndex = Math.max(startDateIndex, endDateIndex);
-    
+
         for (let wIdx = minWorkerIndex; wIdx <= maxWorkerIndex; wIdx++) {
             for (let dIdx = minDateIndex; dIdx <= maxDateIndex; dIdx++) {
                 const workerId = workers[wIdx].id;
@@ -102,6 +104,7 @@ const GanttDashboard: React.FC = () => {
         }
         return keys;
     }, [selection, workers, dates]);
+
     const filteredProjects = useMemo(() => {
         if (!searchTerm) return orderedProjects;
         const lowercasedFilter = searchTerm.toLowerCase();
@@ -117,20 +120,22 @@ const GanttDashboard: React.FC = () => {
             w.name.toLowerCase().includes(lowercasedFilter) || (w.nameKana && w.nameKana.includes(searchTerm))
         );
     }, [orderedWorkers, searchTerm]);
-    // --- Ganttバー重なり解消・ドラッグ ---
+
     const { handleGanttMouseDown, positionedTasksByProject } = useGantt(
-        projects, // projectsはGanttGridに渡されるため、ここでは不要
+        projects,
         tasks,
         setProjects,
         setTasks
     );
-    useEffect(() => {
-        // Firestoreから取得したデータをローカルの順序管理stateにセット
-        // TODO: 将来的には 'order' フィールドでソートする
-        setOrderedProjects([...projects].sort((a, b) => a.name.localeCompare(b.name)));
-        setOrderedWorkers([...workers].sort((a, b) => a.name.localeCompare(b.name)));
 
+    // ★★★ 修正点: orderフィールドでソートする ★★★
+    useEffect(() => {
+        const sortByOrder = (a: { order?: number }, b: { order?: number }) => (a.order ?? Infinity) - (b.order ?? Infinity);
+        setOrderedProjects([...projects].sort(sortByOrder));
+        setOrderedWorkers([...workers].sort(sortByOrder));
     }, [projects, workers]);
+
+
     const activeItem = useMemo(() => {
         if (!activeId) return null;
         return orderedProjects.find(p => p.id === activeId) || orderedWorkers.find(w => w.id === activeId);
@@ -138,10 +143,9 @@ const GanttDashboard: React.FC = () => {
 
     const sensors = useSensors(
         useSensor(PointerSensor),
-        useSensor(KeyboardSensor) // sortableKeyboardCoordinatesはSortableContext内で使用されるため不要
+        useSensor(KeyboardSensor)
      );
 
-    // --- データ保存・削除ロジック ---
     const handleSaveAssignment = async (key: string, newAssignments: Assignment[]) => {
         try {
             await saveAssignmentAPI(key, newAssignments);
@@ -164,33 +168,52 @@ const GanttDashboard: React.FC = () => {
     const handleAssignmentEdit = (cellKey: string) => {
         openModal('assignment', { cellKey });
     };
+
     const handleDragStart = (event: any) => {
         setActiveId(event.active.id);
     };
+
+    // ★★★ 修正点: ドラッグ終了時にFirestoreに保存する処理を追加 ★★★
     const handleDragEnd = (event: any) => {
         const { active, over } = event;
-        if (!over) return;
+        setActiveId(null);
 
-        if (active.id !== over.id) {
-            // プロジェクトの並べ替え
-            const oldProjectIndex = orderedProjects.findIndex(p => p.id === active.id);
-            const newProjectIndex = orderedProjects.findIndex(p => p.id === over.id);
-            if (oldProjectIndex !== -1 && newProjectIndex !== -1) {
-                setOrderedProjects(items => arrayMove(items, oldProjectIndex, newProjectIndex));
-                // TODO: ここでFirestoreに新しい順序を保存する処理を呼ぶ
-                return;
+        if (!over || active.id === over.id) {
+            return;
+        }
+
+        // プロジェクトの並べ替え
+        const isProject = orderedProjects.some(p => p.id === active.id);
+        if (isProject) {
+            const oldIndex = orderedProjects.findIndex(p => p.id === active.id);
+            const newIndex = orderedProjects.findIndex(p => p.id === over.id);
+            if (oldIndex !== -1 && newIndex !== -1) {
+                const newOrderedProjects = arrayMove(orderedProjects, oldIndex, newIndex);
+                setOrderedProjects(newOrderedProjects);
+                wrapWithNotification(
+                    updateItemsOrder(newOrderedProjects, 'projects'),
+                    '現場の並び順を更新しました'
+                );
             }
+            return;
+        }
 
-            // 作業員の並べ替え
-            const oldWorkerIndex = orderedWorkers.findIndex(w => w.id === active.id);
-            const newWorkerIndex = orderedWorkers.findIndex(w => w.id === over.id);
-            if (oldWorkerIndex !== -1 && newWorkerIndex !== -1) {
-                setOrderedWorkers(items => arrayMove(items, oldWorkerIndex, newWorkerIndex));
-                // TODO: ここでFirestoreに新しい順序を保存する処理を呼ぶ
+        // 作業員の並べ替え
+        const isWorker = orderedWorkers.some(w => w.id === active.id);
+        if (isWorker) {
+            const oldIndex = orderedWorkers.findIndex(w => w.id === active.id);
+            const newIndex = orderedWorkers.findIndex(w => w.id === over.id);
+            if (oldIndex !== -1 && newIndex !== -1) {
+                const newOrderedWorkers = arrayMove(orderedWorkers, oldIndex, newIndex);
+                setOrderedWorkers(newOrderedWorkers);
+                wrapWithNotification(
+                    updateItemsOrder(newOrderedWorkers, 'workers'),
+                    '作業員の並び順を更新しました'
+                );
             }
         }
-        setActiveId(null); // ドラッグ終了時にアクティブIDをクリア
     };
+
 
     const handleCellInteraction = useCallback((key: string, type: 'down' | 'move' | 'up') => {
         if (type === 'down') {
@@ -200,19 +223,17 @@ const GanttDashboard: React.FC = () => {
             setSelection(prev => ({ ...prev, endKey: key }));
         } else if (type === 'up') {
             if (isSelecting) {
-                // 左クリック（ドラッグなし）でモーダルを開くロ-ジックを削除し、範囲選択の終了のみを行う
                 setIsSelecting(false);
             }
         }
-    }, [isSelecting, selection.startKey, selection.endKey, openModal]);
+    }, [isSelecting]);
+
     useEffect(() => {
-        // This effect handles mouse up events globally to stop dragging/selecting.
         const handleMouseUpGlobal = () => { if (isSelecting) setIsSelecting(false); };
         document.addEventListener('mouseup', handleMouseUpGlobal);
         return () => document.removeEventListener('mouseup', handleMouseUpGlobal);
     }, [isSelecting]);
 
-    // ナビゲーション用関数
     const scrollDays = (days: number) => {
         const newStart = addDays(viewStartDate, days);
         if (isBefore(newStart, minDate)) {
@@ -230,7 +251,6 @@ const GanttDashboard: React.FC = () => {
         if (dateIndex >= 0) {
             gridRef.current.scrollLeft = (dateIndex * DATE_CELL_WIDTH) - (gridRef.current.clientWidth / 2) + STICKY_COL_WIDTH;
         } else {
-            // If the date is not in the current view, navigate to it and then scroll.
             setViewStartDate(startOfWeek(date, { weekStartsOn: 1 }));
         }
     };
@@ -244,7 +264,7 @@ const GanttDashboard: React.FC = () => {
              <header className="mb-4 flex-shrink-0">
                 <div className="flex justify-between items-center">
                     <h1 className="text-2xl font-bold">工事・作業員管理ダッシュボード</h1>
-                    <button onClick={() => scrollToDate(today)} 
+                    <button onClick={() => scrollToDate(today)}
                         className="px-3 py-1.5 bg-indigo-600 text-white text-sm font-semibold rounded-md shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
                     >                    今日へ
                     </button>
@@ -263,13 +283,13 @@ const GanttDashboard: React.FC = () => {
             <DndContext
                 sensors={sensors}
                 collisionDetection={closestCenter}
-                onDragStart={handleDragStart} // ドラッグ開始イベントを追加
+                onDragStart={handleDragStart}
                 onDragEnd={handleDragEnd}
             >
                 <div ref={gridRef} className="flex-grow overflow-auto bg-white shadow-lg rounded-lg border border-gray-200">
                     <GanttGrid
                         dates={dates}
-                        projects={filteredProjects}                    
+                        projects={filteredProjects}
                         workers={filteredWorkers}
                         assignments={assignments}
                         holidays={holidays}
@@ -282,11 +302,13 @@ const GanttDashboard: React.FC = () => {
                         onGanttMouseDown={handleGanttMouseDown}
                         onProjectEdit={(projectId) => openModal('project', { id: projectId })}
                         onAssignmentEdit={handleAssignmentEdit}
-                        scrollToProjectStart={scrollToDate}  
+                        scrollToProjectStart={scrollToDate}
+                        // ★★★ ここから2行を追加 ★★★
+                        onProjectAdd={() => openModal('project', { id: null })}
+                        onWorkerAdd={() => openModal('worker', { id: null })}
                     />
-                    {/* DragOverlay: ドラッグ中のアイテムの視覚的なコピーを表示。createPortalは不要です */}
                     <DragOverlay>
-                        {activeId && activeItem && ('birthDate' in activeItem ? ( // Workerかどうかをプロパティ存在チェックで判定
+                        {activeId && activeItem && ('birthDate' in activeItem || 'nameKana' in activeItem ? (
                             <WorkerRow
                                 worker={activeItem as Worker}
                                 dates={dates}
@@ -294,12 +316,11 @@ const GanttDashboard: React.FC = () => {
                                 projects={projects}
                                 selection={selection}
                                 selectedKeys={selectedKeys}
-                                // DragOverlayは非インタラクティブなプレビューのため、空の関数を渡して型エラーを解消
                                 onWorkerClick={() => {}}
                                 onCellInteraction={() => {}}
                                 onAssignmentEdit={() => {}}
                             />
-                        ) : ( // プロジェクトの場合
+                        ) : (
                             <ProjectRow
                                 project={activeItem as Project}
                                 positionedTasks={positionedTasksByProject[activeItem.id]?.positionedTasks || []}
@@ -315,7 +336,6 @@ const GanttDashboard: React.FC = () => {
                 </div>
             </DndContext>
 
-            {/* ナビゲーション例: */}
             <div className="flex gap-2 mt-2">
                 <button
                   onClick={() => scrollDays(-numDays)}
@@ -329,7 +349,6 @@ const GanttDashboard: React.FC = () => {
                 >次へ</button>
             </div>
 
-            {/* Modals */}
             <AssignmentModal
                 isOpen={uiState.modal.type === 'assignment'}
                 onClose={closeModal}
@@ -337,7 +356,7 @@ const GanttDashboard: React.FC = () => {
                 selectedKeys={selectedKeys}
                 assignments={assignments}
                 projects={projects}
-                onSave={handleSaveAssignment} // これはローカルステートも更新する必要があるのでAppに残す
+                onSave={handleSaveAssignment}
                 clipboard={clipboard}
                 onCopy={(data) => { setClipboard(data); showNotification('コピーしました'); }}
                 onPaste={(targetKeys) => {
@@ -356,7 +375,8 @@ const GanttDashboard: React.FC = () => {
                 onClose={closeModal}
                 project={projects.find(p => p.id === (uiState.modal.data as any)?.id) || null}
                 tasks={tasks.filter(t => t.projectId === (uiState.modal.data as any)?.id)}
-                onSave={(project) => wrapWithNotification(saveProject(project), '現場情報を保存しました')}
+                // ★★★ 修正点: onSaveに現在のリストを渡す ★★★
+                onSave={(project) => wrapWithNotification(saveProject(project, projects), '現場情報を保存しました')}
                 onDelete={(id) => requestConfirmation(
                     'この現場を削除しますか？関連するタスクもすべて削除されます。',
                     () => wrapWithNotification(deleteProject(id), '現場を削除しました', 'error')
@@ -370,13 +390,16 @@ const GanttDashboard: React.FC = () => {
                 isOpen={uiState.modal.type === 'worker'}
                 onClose={closeModal}
                 worker={workers.find(w => w.id === (uiState.modal.data as any)?.id) || null}
-                onSave={(worker) => wrapWithNotification(saveWorker(worker), '作業員情報を保存しました')}
+                 // ★★★ 修正点: onSaveに現在のリストを渡す ★★★
+                onSave={(worker) => wrapWithNotification(saveWorker(worker, workers), '作業員情報を保存しました')}
                 onDelete={(id) => requestConfirmation('この作業員を削除しますか？', () => wrapWithNotification(deleteWorker(id), '作業員を削除しました', 'error'))}
-            />            <GlobalNotification notification={uiState.notification} onClear={hideNotification} />
+            />
+            <GlobalNotification notification={uiState.notification} onClear={hideNotification} />
             <ConfirmationModal
                 confirmation={uiState.confirmation ? { ...uiState.confirmation, isOpen: true } : null}
                 onCancel={closeConfirmation}
-            />        </div>
+            />
+        </div>
     );
 };
 

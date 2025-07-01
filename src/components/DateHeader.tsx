@@ -1,20 +1,32 @@
+// src/components/DateHeader.tsx
 import React from 'react';
 import { format } from 'date-fns';
 import { ja } from 'date-fns/locale';
+import { Plus } from 'lucide-react'; // Plusアイコンをインポート
 import { STICKY_COL_WIDTH, DATE_CELL_WIDTH, HEADER_HEIGHT } from '../lib/constants';
 
 interface DateHeaderProps {
   dates: Date[];
   holidays: { [date: string]: string };
   weatherData: { [date: string]: { precip: number; temp: number } };
+  // ★★★ 新しいpropを追加 ★★★
+  onProjectAdd: () => void;
 }
 
-export const DateHeader: React.FC<DateHeaderProps> = React.memo(({ dates, holidays, weatherData }) => {
+export const DateHeader: React.FC<DateHeaderProps> = React.memo(({ dates, holidays, weatherData, onProjectAdd }) => {
   return (
     <div style={{ position: 'sticky', top: 0, zIndex: 100 }}>
       <div className="grid" style={{ gridTemplateColumns: `${STICKY_COL_WIDTH}px repeat(${dates.length}, ${DATE_CELL_WIDTH}px)` }}>
+        {/* ★★★ 現場名ヘッダーにボタンを追加 ★★★ */}
         <div className="sticky top-0 left-0 z-50 bg-gray-200 border-b border-r border-gray-300 p-2 flex items-center justify-between" style={{ height: HEADER_HEIGHT }}>
           <span className="font-bold">現場名</span>
+          <button
+            onClick={onProjectAdd}
+            className="flex items-center justify-center w-6 h-6 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 transition-transform transform hover:scale-110"
+            title="新規現場を追加"
+          >
+            <Plus size={16} />
+          </button>
         </div>
         {dates.map(date => {
           const dateStr = format(date, 'yyyy-MM-dd');
@@ -40,4 +52,3 @@ export const DateHeader: React.FC<DateHeaderProps> = React.memo(({ dates, holida
     </div>
   );
 });
-
